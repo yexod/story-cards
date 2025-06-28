@@ -1,15 +1,42 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Story Cards Test</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Story Cards</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Ensure the page loads properly */
+        body { margin: 0; padding: 0; }
+        #root { min-height: 100vh; }
+    </style>
 </head>
 <body>
-    <h1>Story Cards Loading Test</h1>
-    <p>If you see this, GitHub Pages is working!</p>
-    <div id="root">JavaScript will load here...</div>
+    <div id="root">
+        <div style="display: flex; justify-content: center; align-items: center; height: 100vh; font-family: system-ui;">
+            <div style="text-align: center;">
+                <h1>Loading Story Cards...</h1>
+                <p>Please wait while the app loads.</p>
+            </div>
+        </div>
+    </div>
     
+    <!-- Lucide icons -->
     <script>
-        document.getElementById('root').innerHTML = '<p style="color: green;">JavaScript is working!</p>';
+        // Load Lucide icons
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/lucide@latest/dist/umd/lucide.js';
+        script.onload = function() {
+            // Load the main app after dependencies
+            const appScript = document.createElement('script');
+            appScript.type = 'text/babel';
+            appScript.src = 'app.js';
+            document.head.appendChild(appScript);
+        };
+        document.head.appendChild(script);
     </script>
 </body>
 </html>
