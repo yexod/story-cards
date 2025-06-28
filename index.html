@@ -50,6 +50,7 @@
                 this.showCreateProject = false;
                 this.syncStatus = 'idle';
                 this.isOnline = navigator.onLine;
+                this.draggedCard = null;
                 
                 this.loadData();
                 this.render();
@@ -345,9 +346,17 @@
                 const currentProjectName = this.projects[this.currentProject]?.name || 'Untitled Project';
                 
                 const cardsList = this.cards.map((card, index) => `
-                    <div class="bg-white shadow-lg cursor-move transition-all duration-200 hover:shadow-xl card-background" style="width: 200px; height: 250px;">
+                    <div class="bg-white shadow-lg cursor-move transition-all duration-200 hover:shadow-xl card-background" 
+                         style="width: 200px; height: 250px;" 
+                         draggable="true" 
+                         ondragstart="app.handleDragStart(event, ${card.id}, ${index})"
+                         ondragover="app.handleDragOver(event, ${index})"
+                         ondrop="app.handleDrop(event, ${index})"
+                         ondragenter="event.preventDefault()"
+                         ondragleave="app.handleDragLeave(event)"
+                         id="card-${card.id}">
                         <div class="card-header-line"></div>
-                        <div class="absolute top-2 right-2 text-gray-400">⋮⋮</div>
+                        <div class="absolute top-2 right-2 text-gray-400" style="cursor: grab;">⋮⋮</div>
                         
                         <div class="p-3 h-full flex flex-col">
                             ${this.editingCard === card.id ? `
@@ -451,7 +460,62 @@
                     this.render();
                 }
             }
+
+            handleDragStart(event, cardId, index) {
+                this.draggedCard = { cardId, index };
+                event.dataTransfer.effectAllowed = 'move';
+                event.target.style.opacity = '0.5';
+            }
             
+            handleDragOver(event, index) {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                
+                // Visual feedback
+                const cards = document.querySelectorAll('[id^="card-"]');
+                cards.forEach(card => card.style.transform = '');
+                
+                if (this.draggedCard && this.draggedCard.index !== index) {
+                    const targetCard = document.getElementById(`card-${this.cards[index].id}`);
+                    if (targetCard) {
+                        targetCard.style.transform = 'scale(1.05)';
+                        targetCard.style.boxShadow = '0 0 20px rgba(59, 130, 246, 0.5)';
+                    }
+                }
+            }
+            
+            handleDragLeave(event) {
+                const targetCard = event.target.closest('[id^="card-"]');
+                if (targetCard) {
+                    targetCard.style.transform = '';
+                    targetCard.style.boxShadow = '';
+                }
+            }
+            
+            handleDrop(event, dropIndex) {
+                event.preventDefault();
+                
+                // Clear visual feedback
+                const cards = document.querySelectorAll('[id^="card-"]');
+                cards.forEach(card => {
+                    card.style.opacity = '';
+                    card.style.transform = '';
+                    card.style.boxShadow = '';
+                });
+                
+                if (this.draggedCard && this.draggedCard.index !== dropIndex) {
+                    const newCards = [...this.cards];
+                    const [movedCard] = newCards.splice(this.draggedCard.index, 1);
+                    newCards.splice(dropIndex, 0, movedCard);
+                    
+                    this.cards = newCards;
+                    this.updateCurrentProject();
+                    this.render();
+                }
+                
+                this.draggedCard = null;
+            }
+                        
             exportProject(id) {
                 const project = this.projects[id];
                 if (project) {
