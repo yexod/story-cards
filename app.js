@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Edit3, GripVertical, FolderOpen, Save, Download, Upload, ArrowLeft, Trash2 } from 'lucide-react';
+const { useState, useRef, useEffect } = React;
+const { Plus, Edit3, GripVertical, FolderOpen, Download, ArrowLeft, Trash2, Cloud, CloudOff } = lucide;
 
 const FictionCardOrganizer = () => {
   const [currentProject, setCurrentProject] = useState(null);
@@ -18,22 +18,54 @@ const FictionCardOrganizer = () => {
   const [editingProjectValue, setEditingProjectValue] = useState('');
   const [showDeleteProjectConfirm, setShowDeleteProjectConfirm] = useState(null);
   const [showCreateProject, setShowCreateProject] = useState(false);
+  
+  // Cloud sync states
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [lastSyncTime, setLastSyncTime] = useState(null);
+  const [syncStatus, setSyncStatus] = useState('idle'); // 'idle', 'syncing', 'error'
 
   const cardRefs = useRef({});
-  const fileInputRef = useRef(null);
 
-  // Use in-memory storage instead of localStorage
-  const [savedProjects, setSavedProjects] = useState({});
+  // GitHub configuration
+  const GITHUB_CONFIG = {
+    username: 'yexod',
+    repo: 'story-cards',
+    filename: 'data.json',
+    branch: 'main'
+  };
 
-  // Load projects from memory on mount - removed this effect that was causing issues
-  // useEffect(() => {
-  //   setProjects(savedProjects);
-  // }, [savedProjects]);
-
-  // Save projects to memory whenever projects change - simplified
+  // Monitor online status
   useEffect(() => {
-    setSavedProjects(projects);
-  }, [projects]);
+    const handleOnline = () => {
+      setIsOnline(true);
+      syncToCloud();
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Load data on startup
+  useEffect(() => {
+    loadFromCloud();
+  }, []);
+
+  // Auto-sync when projects change
+  useEffect(() => {
+    if (Object.keys(projects).length > 0 && isOnline) {
+      const timeoutId = setTimeout(() => {
+        syncToCloud();
+      }, 2000); // Wait 2 seconds after changes before syncing
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [projects, isOnline]);
 
   // Auto-save current project when cards change
   useEffect(() => {
@@ -48,6 +80,121 @@ const FictionCardOrganizer = () => {
       }));
     }
   }, [cards, currentProject]);
+
+  // Load data from GitHub
+  const loadFromCloud = async () => {
+    if (!isOnline) {
+      // Try to load from localStorage as fallback
+      const localData = localStorage.getItem('storyCardsProjects');
+      if (localData) {
+        try {
+          const parsedData = JSON.parse(localData);
+          setProjects(parsedData);
+        } catch (error) {
+          console.error('Error loading local data:', error);
+        }
+      }
+      return;
+    }
+
+    try {
+      setSyncStatus('syncing');
+      const response = await fetch(
+        `https://api.github.com/repos/${GITHUB_CONFIG.username}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.filename}`
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        const content = atob(data.content);
+        const projectsData = JSON.parse(content);
+        setProjects(projectsData);
+        setLastSyncTime(new Date());
+        
+        // Also save to localStorage as backup
+        localStorage.setItem('storyCardsProjects', JSON.stringify(projectsData));
+      } else if (response.status === 404) {
+        // File doesn't exist yet, that's okay for first time
+        console.log('No cloud data found, starting fresh');
+      }
+      setSyncStatus('idle');
+    } catch (error) {
+      console.error('Error loading from cloud:', error);
+      setSyncStatus('error');
+      
+      // Fallback to localStorage
+      const localData = localStorage.getItem('storyCardsProjects');
+      if (localData) {
+        try {
+          const parsedData = JSON.parse(localData);
+          setProjects(parsedData);
+        } catch (localError) {
+          console.error('Error loading local backup:', localError);
+        }
+      }
+    }
+  };
+
+  // Save data to GitHub
+  const syncToCloud = async () => {
+    if (!isOnline || Object.keys(projects).length === 0) return;
+
+    try {
+      setSyncStatus('syncing');
+      
+      // First, try to get the current file to get its SHA (required for updates)
+      let sha = null;
+      try {
+        const getCurrentFile = await fetch(
+          `https://api.github.com/repos/${GITHUB_CONFIG.username}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.filename}`
+        );
+        if (getCurrentFile.ok) {
+          const currentData = await getCurrentFile.json();
+          sha = currentData.sha;
+        }
+      } catch (error) {
+        // File might not exist yet, that's okay
+      }
+
+      const content = btoa(JSON.stringify(projects, null, 2));
+      
+      const updateData = {
+        message: `Update story cards data - ${new Date().toISOString()}`,
+        content: content,
+        branch: GITHUB_CONFIG.branch
+      };
+      
+      if (sha) {
+        updateData.sha = sha;
+      }
+
+      const response = await fetch(
+        `https://api.github.com/repos/${GITHUB_CONFIG.username}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.filename}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(updateData)
+        }
+      );
+
+      if (response.ok) {
+        setLastSyncTime(new Date());
+        setSyncStatus('idle');
+        
+        // Also save to localStorage as backup
+        localStorage.setItem('storyCardsProjects', JSON.stringify(projects));
+      } else {
+        throw new Error(`GitHub API error: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('Error syncing to cloud:', error);
+      setSyncStatus('error');
+      
+      // Save to localStorage as fallback
+      localStorage.setItem('storyCardsProjects', JSON.stringify(projects));
+    }
+  };
 
   const createNewProject = () => {
     if (newProjectName.trim()) {
@@ -82,77 +229,6 @@ const FictionCardOrganizer = () => {
       setCards(project.cards || []);
       setShowProjectManager(false);
     }
-  };
-
-  const updateProjectName = (projectId, newName) => {
-    if (newName.trim()) {
-      setProjects(prev => ({
-        ...prev,
-        [projectId]: {
-          ...prev[projectId],
-          name: newName.trim(),
-          lastModified: new Date().toISOString()
-        }
-      }));
-    }
-    setEditingProjectName(null);
-    setEditingProjectValue('');
-  };
-
-  const deleteProject = (projectId) => {
-    if (window.confirm('Are you sure you want to delete this project? This cannot be undone.')) {
-      setProjects(prev => {
-        const newProjects = { ...prev };
-        delete newProjects[projectId];
-        return newProjects;
-      });
-      
-      if (currentProject === projectId) {
-        setCurrentProject(null);
-        setCards([]);
-        setShowProjectManager(true);
-      }
-    }
-  };
-
-  const exportProject = () => {
-    if (currentProject && projects[currentProject]) {
-      const project = projects[currentProject];
-      const dataStr = JSON.stringify(project, null, 2);
-      const dataBlob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(dataBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
-    }
-  };
-
-  const importProject = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const imported = JSON.parse(e.target.result);
-          const projectId = Date.now().toString();
-          const importedProject = {
-            ...imported,
-            id: projectId,
-            name: `${imported.name} (Imported)`,
-            lastModified: new Date().toISOString()
-          };
-          
-          setProjects(prev => ({ ...prev, [projectId]: importedProject }));
-          alert('Project imported successfully!');
-        } catch (error) {
-          alert('Error importing project. Please check the file format.');
-        }
-      };
-      reader.readAsText(file);
-    }
-    event.target.value = '';
   };
 
   const handleDragStart = (e, card, index) => {
@@ -227,6 +303,44 @@ const FictionCardOrganizer = () => {
     return 'text-xs leading-tight';
   };
 
+  const exportProject = () => {
+    if (currentProject && projects[currentProject]) {
+      const project = projects[currentProject];
+      const dataStr = JSON.stringify(project, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  // Sync status indicator
+  const SyncIndicator = () => {
+    const getStatusColor = () => {
+      if (!isOnline) return 'text-red-500';
+      if (syncStatus === 'syncing') return 'text-blue-500';
+      if (syncStatus === 'error') return 'text-yellow-500';
+      return 'text-green-500';
+    };
+
+    const getStatusText = () => {
+      if (!isOnline) return 'Offline';
+      if (syncStatus === 'syncing') return 'Syncing...';
+      if (syncStatus === 'error') return 'Sync Error';
+      return lastSyncTime ? `Synced ${lastSyncTime.toLocaleTimeString()}` : 'Ready';
+    };
+
+    return (
+      <div className={`flex items-center gap-1 text-xs ${getStatusColor()}`}>
+        {isOnline ? <Cloud size={12} /> : <CloudOff size={12} />}
+        <span>{getStatusText()}</span>
+      </div>
+    );
+  };
+
   // Project Manager View
   if (showProjectManager) {
     return (
@@ -235,6 +349,9 @@ const FictionCardOrganizer = () => {
           <div className="text-center mb-8">
             <h1 className="text-4xl font-bold text-amber-900 mb-2">Story Cards</h1>
             <p className="text-amber-800">Manage your story projects</p>
+            <div className="mt-2">
+              <SyncIndicator />
+            </div>
           </div>
 
           {/* Existing Projects */}
@@ -261,9 +378,7 @@ const FictionCardOrganizer = () => {
                                 onChange={(e) => setEditingProjectValue(e.target.value)}
                                 onKeyPress={(e) => {
                                   if (e.key === 'Enter') {
-                                    console.log('Enter pressed, updating:', project.id, 'to:', editingProjectValue.trim());
                                     if (editingProjectValue.trim()) {
-                                      // Force re-render with new object reference
                                       setProjects(currentProjects => {
                                         const newProjects = {};
                                         Object.keys(currentProjects).forEach(key => {
@@ -277,7 +392,6 @@ const FictionCardOrganizer = () => {
                                             newProjects[key] = currentProjects[key];
                                           }
                                         });
-                                        console.log('New projects state:', newProjects);
                                         return newProjects;
                                       });
                                     }
@@ -296,9 +410,7 @@ const FictionCardOrganizer = () => {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  console.log('Save clicked, updating:', project.id, 'to:', editingProjectValue.trim());
                                   if (editingProjectValue.trim()) {
-                                    // Force re-render with new object reference
                                     setProjects(currentProjects => {
                                       const newProjects = {};
                                       Object.keys(currentProjects).forEach(key => {
@@ -312,7 +424,6 @@ const FictionCardOrganizer = () => {
                                           newProjects[key] = currentProjects[key];
                                         }
                                       });
-                                      console.log('New projects state:', newProjects);
                                       return newProjects;
                                     });
                                   }
@@ -396,9 +507,6 @@ const FictionCardOrganizer = () => {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                console.log('Confirming delete for project:', project.id);
-                                
-                                // Force re-render with completely new object reference
                                 setProjects(currentProjects => {
                                   const newProjects = {};
                                   Object.keys(currentProjects).forEach(key => {
@@ -406,11 +514,9 @@ const FictionCardOrganizer = () => {
                                       newProjects[key] = currentProjects[key];
                                     }
                                   });
-                                  console.log('New projects after delete:', newProjects);
                                   return newProjects;
                                 });
                                 
-                                // Clear current project if it was the deleted one
                                 if (currentProject === project.id) {
                                   setCurrentProject(null);
                                   setCards([]);
@@ -489,8 +595,6 @@ const FictionCardOrganizer = () => {
                   onChange={(e) => setNewProjectName(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && createNewProject()}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 mb-4"
-                  id="new-project-popup-input"
-                  name="projectName"
                   autoFocus
                 />
                 <div className="flex gap-3 justify-end">
@@ -540,7 +644,7 @@ const FictionCardOrganizer = () => {
                 {projects[currentProject]?.name || 'Untitled Project'}
               </h1>
               <p className="text-amber-800 text-sm">
-                {cards.length} scenes • Auto-saved
+                {cards.length} scenes • <SyncIndicator />
               </p>
             </div>
             <div className="flex gap-2">
@@ -730,4 +834,5 @@ const FictionCardOrganizer = () => {
   );
 };
 
-export default FictionCardOrganizer;
+// Render the app
+ReactDOM.render(<FictionCardOrganizer />, document.getElementById('root'));
