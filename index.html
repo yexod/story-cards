@@ -204,6 +204,33 @@
                 });
                 this.updateCurrentProject();
             }
+
+            handleRealTimeInput(cardId, field, value, inputElement) {
+                // Update the card data
+                this.cards = this.cards.map(card => {
+                    if (card.id === cardId) {
+                        const updatedCard = { ...card, [field]: value };
+                        // Remove placeholder flag once user starts typing
+                        if (value.trim()) {
+                            updatedCard.isPlaceholder = false;
+                        }
+                        return updatedCard;
+                    }
+                    return card;
+                });
+                
+                // Immediately update the text color based on content
+                if (value.trim()) {
+                    // User has typed something - make it black
+                    inputElement.className = inputElement.className.replace('text-gray-400', 'text-black');
+                } else {
+                    // User cleared the field - make it gray again
+                    inputElement.className = inputElement.className.replace('text-black', 'text-gray-400');
+                }
+                
+                // Save the data (but don't re-render to avoid losing focus)
+                this.updateCurrentProject();
+            }
             
             deleteCard(cardId) {
                 this.cards = this.cards.filter(card => card.id !== cardId);
@@ -358,8 +385,6 @@
                     // Determine display values and placeholder status
                     const displayTitle = card.title || (card.isPlaceholder ? 'New Scene' : '');
                     const displayContent = card.content || (card.isPlaceholder ? 'Add your scene details here...' : '');
-                    const titleClass = card.isPlaceholder && !card.title ? 'font-bold text-sm mb-2 bg-transparent border-none outline-none text-gray-400' : 'font-bold text-sm mb-2 bg-transparent border-none outline-none';
-                    const contentClass = card.isPlaceholder && !card.content ? 'flex-1 bg-transparent border-none outline-none resize-none text-xs leading-relaxed text-gray-400' : 'flex-1 bg-transparent border-none outline-none resize-none text-xs leading-relaxed';
                     const displayTitleClass = card.isPlaceholder && !card.title ? 'font-bold mb-2 text-sm text-gray-400' : 'font-bold mb-2 text-sm';
                     const displayContentClass = card.isPlaceholder && !card.content ? 'flex-1 whitespace-pre-wrap text-xs text-gray-400' : 'flex-1 whitespace-pre-wrap text-xs';
                 
@@ -379,16 +404,20 @@
                             <div class="p-3 h-full flex flex-col">
                                 ${this.editingCard === card.id ? `
                                     <input type="text" 
+                                           id="title-input-${card.id}"
                                            value="${card.title}" 
                                            placeholder="New Scene"
                                            onchange="app.updateCard(${card.id}, 'title', this.value)" 
+                                           oninput="app.handleRealTimeInput(${card.id}, 'title', this.value, this)"
                                            onfocus="if(this.value === '' && app.cards.find(c => c.id === ${card.id}).isPlaceholder) this.value = ''"
-                                           class="${titleClass}" 
+                                           class="font-bold text-sm mb-2 bg-transparent border-none outline-none ${card.isPlaceholder && !card.title ? 'text-gray-400' : 'text-black'}" 
                                            style="font-family: system-ui;">
-                                    <textarea placeholder="Add your scene details here..." 
+                                    <textarea id="content-input-${card.id}"
+                                              placeholder="Add your scene details here..." 
                                               onchange="app.updateCard(${card.id}, 'content', this.value)" 
+                                              oninput="app.handleRealTimeInput(${card.id}, 'content', this.value, this)"
                                               onfocus="if(this.value === '' && app.cards.find(c => c.id === ${card.id}).isPlaceholder) this.value = ''"
-                                              class="${contentClass}" 
+                                              class="flex-1 bg-transparent border-none outline-none resize-none text-xs leading-relaxed ${card.isPlaceholder && !card.content ? 'text-gray-400' : 'text-black'}" 
                                               style="font-family: system-ui;">${card.content}</textarea>
                                     <div class="flex gap-2 mt-2">
                                         <button onclick="app.editingCard = null; app.render()" class="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs transition-colors">Save</button>
