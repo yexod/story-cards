@@ -1,838 +1,602 @@
-const { useState, useRef, useEffect } = React;
-const { Plus, Edit3, GripVertical, FolderOpen, Download, ArrowLeft, Trash2, Cloud, CloudOff } = lucide;
-
-const FictionCardOrganizer = () => {
-  const [currentProject, setCurrentProject] = useState(null);
-  const [projects, setProjects] = useState({});
-  const [showProjectManager, setShowProjectManager] = useState(true);
-  const [newProjectName, setNewProjectName] = useState('');
-  
-  const [cards, setCards] = useState([]);
-  const [draggedCard, setDraggedCard] = useState(null);
-  const [dragOverIndex, setDragOverIndex] = useState(null);
-  const [editingCard, setEditingCard] = useState(null);
-  const [editingProjectName, setEditingProjectName] = useState(null);
-  const [newCard, setNewCard] = useState({ title: '', content: '' });
-  const [showAddCard, setShowAddCard] = useState(false);
-  const [showDeleteCardConfirm, setShowDeleteCardConfirm] = useState(null);
-  const [editingProjectValue, setEditingProjectValue] = useState('');
-  const [showDeleteProjectConfirm, setShowDeleteProjectConfirm] = useState(null);
-  const [showCreateProject, setShowCreateProject] = useState(false);
-  
-  // Cloud sync states
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [lastSyncTime, setLastSyncTime] = useState(null);
-  const [syncStatus, setSyncStatus] = useState('idle'); // 'idle', 'syncing', 'error'
-
-  const cardRefs = useRef({});
-
-  // GitHub configuration
-  const GITHUB_CONFIG = {
-    username: 'yexod',
-    repo: 'story-cards',
-    filename: 'data.json',
-    branch: 'main'
-  };
-
-  // Monitor online status
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      syncToCloud();
-    };
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Story Cards</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+        #root { min-height: 100vh; }
+        .card-background {
+            background-image: repeating-linear-gradient(
+                transparent,
+                transparent 19px,
+                #e5e7eb 19px,
+                #e5e7eb 20px
+            );
+            padding-top: 30px;
+            position: relative;
+        }
+        .card-header-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background-color: #f9a8d4;
+            height: 3px;
+            margin-top: 22px;
+        }
+        .dot-background {
+            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23D2B48C' fill-opacity='0.4'%3E%3Ccircle cx='7' cy='7' r='1'/%3E%3Ccircle cx='27' cy='7' r='1'/%3E%3Ccircle cx='47' cy='7' r='1'/%3E%3Ccircle cx='7' cy='27' r='1'/%3E%3Ccircle cx='27' cy='27' r='1'/%3E%3Ccircle cx='47' cy='27' r='1'/%3E%3Ccircle cx='7' cy='47' r='1'/%3E%3Ccircle cx='27' cy='47' r='1'/%3E%3Ccircle cx='47' cy='47' r='1'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            background-color: #D2B48C;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
     
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
-
-  // Load data on startup
-  useEffect(() => {
-    loadFromCloud();
-  }, []);
-
-  // Auto-sync when projects change
-  useEffect(() => {
-    if (Object.keys(projects).length > 0 && isOnline) {
-      const timeoutId = setTimeout(() => {
-        syncToCloud();
-      }, 2000); // Wait 2 seconds after changes before syncing
-      
-      return () => clearTimeout(timeoutId);
-    }
-  }, [projects, isOnline]);
-
-  // Auto-save current project when cards change
-  useEffect(() => {
-    if (currentProject && cards.length >= 0) {
-      setProjects(prev => ({
-        ...prev,
-        [currentProject]: {
-          ...prev[currentProject],
-          cards: cards,
-          lastModified: new Date().toISOString()
-        }
-      }));
-    }
-  }, [cards, currentProject]);
-
-  // Load data from GitHub
-  const loadFromCloud = async () => {
-    if (!isOnline) {
-      // Try to load from localStorage as fallback
-      const localData = localStorage.getItem('storyCardsProjects');
-      if (localData) {
-        try {
-          const parsedData = JSON.parse(localData);
-          setProjects(parsedData);
-        } catch (error) {
-          console.error('Error loading local data:', error);
-        }
-      }
-      return;
-    }
-
-    try {
-      setSyncStatus('syncing');
-      const response = await fetch(
-        `https://api.github.com/repos/${GITHUB_CONFIG.username}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.filename}`
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        const content = atob(data.content);
-        const projectsData = JSON.parse(content);
-        setProjects(projectsData);
-        setLastSyncTime(new Date());
+    <script>
+        // Simple Story Cards App - No external dependencies
         
-        // Also save to localStorage as backup
-        localStorage.setItem('storyCardsProjects', JSON.stringify(projectsData));
-      } else if (response.status === 404) {
-        // File doesn't exist yet, that's okay for first time
-        console.log('No cloud data found, starting fresh');
-      }
-      setSyncStatus('idle');
-    } catch (error) {
-      console.error('Error loading from cloud:', error);
-      setSyncStatus('error');
-      
-      // Fallback to localStorage
-      const localData = localStorage.getItem('storyCardsProjects');
-      if (localData) {
-        try {
-          const parsedData = JSON.parse(localData);
-          setProjects(parsedData);
-        } catch (localError) {
-          console.error('Error loading local backup:', localError);
-        }
-      }
-    }
-  };
+        class StoryCardsApp {
+            constructor() {
+                this.projects = {};
+                this.currentProject = null;
+                this.cards = [];
+                this.showProjectManager = true;
+                this.editingCard = null;
+                this.editingProject = null;
+                this.showCreateProject = false;
+                this.syncStatus = 'idle';
+                this.isOnline = navigator.onLine;
+                this.draggedCard = null;
+                
+                this.loadData();
+                this.render();
+                this.setupEventListeners();
+            }
+            
+            loadData() {
+                try {
+                    const saved = localStorage.getItem('storyCardsProjects');
+                    if (saved) {
+                        this.projects = JSON.parse(saved);
+                    }
+                } catch (error) {
+                    console.error('Error loading data:', error);
+                }
+            }
+            
+            saveData() {
+                try {
+                    localStorage.setItem('storyCardsProjects', JSON.stringify(this.projects));
+                    this.syncToGitHub();
+                } catch (error) {
+                    console.error('Error saving data:', error);
+                }
+            }
+            
+            async syncToGitHub() {
+                if (!this.isOnline || Object.keys(this.projects).length === 0) return;
+                
+                try {
+                    this.syncStatus = 'syncing';
+                    this.updateSyncIndicator();
+                    
+                    // Get current file SHA
+                    let sha = null;
+                    try {
+                        const getCurrentFile = await fetch(
+                            'https://api.github.com/repos/yexod/story-cards/contents/data.json'
+                        );
+                        if (getCurrentFile.ok) {
+                            const currentData = await getCurrentFile.json();
+                            sha = currentData.sha;
+                        }
+                    } catch (error) {
+                        // File might not exist yet
+                    }
+                    
+                    const content = btoa(JSON.stringify(this.projects, null, 2));
+                    const updateData = {
+                        message: `Update story cards data - ${new Date().toISOString()}`,
+                        content: content,
+                        branch: 'main'
+                    };
+                    
+                    if (sha) updateData.sha = sha;
+                    
+                    const response = await fetch(
+                        'https://api.github.com/repos/yexod/story-cards/contents/data.json',
+                        {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(updateData)
+                        }
+                    );
+                    
+                    if (response.ok) {
+                        this.syncStatus = 'synced';
+                    } else {
+                        this.syncStatus = 'error';
+                    }
+                } catch (error) {
+                    this.syncStatus = 'error';
+                    console.error('Sync error:', error);
+                }
+                
+                this.updateSyncIndicator();
+            }
+            
+            setupEventListeners() {
+                window.addEventListener('online', () => {
+                    this.isOnline = true;
+                    this.syncToGitHub();
+                });
+                
+                window.addEventListener('offline', () => {
+                    this.isOnline = false;
+                    this.updateSyncIndicator();
+                });
+            }
+            
+            createProject(name) {
+                if (!name.trim()) return;
+                
+                const id = Date.now().toString();
+                const newProject = {
+                    id: id,
+                    name: name.trim(),
+                    cards: [{
+                        id: 1,
+                        title: "Welcome to your new project!",
+                        content: "This is your first card. Click to edit it.\n\n• Start outlining your chapters\n• Add scene breakdowns\n• Organize your story structure"
+                    }],
+                    created: new Date().toISOString(),
+                    lastModified: new Date().toISOString()
+                };
+                
+                this.projects[id] = newProject;
+                this.currentProject = id;
+                this.cards = [...newProject.cards];
+                this.showProjectManager = false;
+                this.showCreateProject = false;
+                
+                this.saveData();
+                this.render();
+            }
+            
+            loadProject(id) {
+                const project = this.projects[id];
+                if (project) {
+                    this.currentProject = id;
+                    this.cards = [...project.cards];
+                    this.showProjectManager = false;
+                    this.render();
+                }
+            }
+            
+            addCard() {
+                const newCard = {
+                    id: Date.now(),
+                    title: '',  // Empty string instead of 'New Scene'
+                    content: '', // Empty string instead of placeholder text
+                    isPlaceholder: true // Flag to track if it's still using placeholders
+                };
+                
+                this.cards.push(newCard);
+                this.updateCurrentProject();
+                this.render();
+            }
+            
+            updateCard(cardId, field, value) {
+                this.cards = this.cards.map(card => {
+                    if (card.id === cardId) {
+                        const updatedCard = { ...card, [field]: value };
+                        // Remove placeholder flag once user starts typing
+                        if (value.trim()) {
+                            updatedCard.isPlaceholder = false;
+                        }
+                        return updatedCard;
+                    }
+                    return card;
+                });
+                this.updateCurrentProject();
+            }
 
-  // Save data to GitHub
-  const syncToCloud = async () => {
-    if (!isOnline || Object.keys(projects).length === 0) return;
-
-    try {
-      setSyncStatus('syncing');
-      
-      // First, try to get the current file to get its SHA (required for updates)
-      let sha = null;
-      try {
-        const getCurrentFile = await fetch(
-          `https://api.github.com/repos/${GITHUB_CONFIG.username}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.filename}`
-        );
-        if (getCurrentFile.ok) {
-          const currentData = await getCurrentFile.json();
-          sha = currentData.sha;
-        }
-      } catch (error) {
-        // File might not exist yet, that's okay
-      }
-
-      const content = btoa(JSON.stringify(projects, null, 2));
-      
-      const updateData = {
-        message: `Update story cards data - ${new Date().toISOString()}`,
-        content: content,
-        branch: GITHUB_CONFIG.branch
-      };
-      
-      if (sha) {
-        updateData.sha = sha;
-      }
-
-      const response = await fetch(
-        `https://api.github.com/repos/${GITHUB_CONFIG.username}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.filename}`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(updateData)
-        }
-      );
-
-      if (response.ok) {
-        setLastSyncTime(new Date());
-        setSyncStatus('idle');
-        
-        // Also save to localStorage as backup
-        localStorage.setItem('storyCardsProjects', JSON.stringify(projects));
-      } else {
-        throw new Error(`GitHub API error: ${response.status}`);
-      }
-    } catch (error) {
-      console.error('Error syncing to cloud:', error);
-      setSyncStatus('error');
-      
-      // Save to localStorage as fallback
-      localStorage.setItem('storyCardsProjects', JSON.stringify(projects));
-    }
-  };
-
-  const createNewProject = () => {
-    if (newProjectName.trim()) {
-      const projectId = Date.now().toString();
-      const newProject = {
-        id: projectId,
-        name: newProjectName.trim(),
-        cards: [
-          { 
-            id: 1, 
-            title: "Welcome to your new project!", 
-            content: "This is your first card. Click to edit it, or drag the + button above to add more cards.\n\n• Start outlining your chapters\n• Add scene breakdowns\n• Organize your story structure" 
-          }
-        ],
-        created: new Date().toISOString(),
-        lastModified: new Date().toISOString()
-      };
-      
-      setProjects(prev => ({ ...prev, [projectId]: newProject }));
-      setCurrentProject(projectId);
-      setCards(newProject.cards);
-      setNewProjectName('');
-      setShowCreateProject(false);
-      setShowProjectManager(false);
-    }
-  };
-
-  const loadProject = (projectId) => {
-    const project = projects[projectId];
-    if (project) {
-      setCurrentProject(projectId);
-      setCards(project.cards || []);
-      setShowProjectManager(false);
-    }
-  };
-
-  const handleDragStart = (e, card, index) => {
-    setDraggedCard({ card, index });
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  const handleDragOver = (e, index) => {
-    e.preventDefault();
-    setDragOverIndex(index);
-  };
-
-  const handleDragLeave = () => {
-    setDragOverIndex(null);
-  };
-
-  const handleDrop = (e, dropIndex) => {
-    e.preventDefault();
-    
-    if (draggedCard && draggedCard.index !== dropIndex) {
-      const newCards = [...cards];
-      const [movedCard] = newCards.splice(draggedCard.index, 1);
-      newCards.splice(dropIndex, 0, movedCard);
-      setCards(newCards);
-    }
-    
-    setDraggedCard(null);
-    setDragOverIndex(null);
-  };
-
-  const handleCardEdit = (cardId, field, value) => {
-    setCards(cards.map(card => 
-      card.id === cardId ? { ...card, [field]: value } : card
-    ));
-  };
-
-  const addNewCard = (insertIndex = null) => {
-    if (newCard.title.trim() || newCard.content.trim()) {
-      const newCardObj = {
-        id: Date.now(),
-        title: newCard.title || 'New Scene',
-        content: newCard.content || 'Add your scene details here...'
-      };
-      
-      const newCards = [...cards];
-      if (insertIndex !== null) {
-        newCards.splice(insertIndex, 0, newCardObj);
-      } else {
-        newCards.push(newCardObj);
-      }
-      
-      setCards(newCards);
-      setNewCard({ title: '', content: '' });
-      setShowAddCard(false);
-    }
-  };
-
-  const deleteCard = (cardId) => {
-    if (showDeleteCardConfirm === cardId) {
-      setCards(cards.filter(card => card.id !== cardId));
-      setEditingCard(null);
-      setShowDeleteCardConfirm(null);
-    } else {
-      setShowDeleteCardConfirm(cardId);
-    }
-  };
-
-  const adjustFontSize = (text, maxLines = 10) => {
-    const length = text.length;
-    if (length < 100) return 'text-sm';
-    if (length < 200) return 'text-xs';
-    return 'text-xs leading-tight';
-  };
-
-  const exportProject = () => {
-    if (currentProject && projects[currentProject]) {
-      const project = projects[currentProject];
-      const dataStr = JSON.stringify(project, null, 2);
-      const dataBlob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(dataBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
-    }
-  };
-
-  // Sync status indicator
-  const SyncIndicator = () => {
-    const getStatusColor = () => {
-      if (!isOnline) return 'text-red-500';
-      if (syncStatus === 'syncing') return 'text-blue-500';
-      if (syncStatus === 'error') return 'text-yellow-500';
-      return 'text-green-500';
-    };
-
-    const getStatusText = () => {
-      if (!isOnline) return 'Offline';
-      if (syncStatus === 'syncing') return 'Syncing...';
-      if (syncStatus === 'error') return 'Sync Error';
-      return lastSyncTime ? `Synced ${lastSyncTime.toLocaleTimeString()}` : 'Ready';
-    };
-
-    return (
-      <div className={`flex items-center gap-1 text-xs ${getStatusColor()}`}>
-        {isOnline ? <Cloud size={12} /> : <CloudOff size={12} />}
-        <span>{getStatusText()}</span>
-      </div>
-    );
-  };
-
-  // Project Manager View
-  if (showProjectManager) {
-    return (
-      <div className="min-h-screen bg-amber-50 p-6">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-amber-900 mb-2">Story Cards</h1>
-            <p className="text-amber-800">Manage your story projects</p>
-            <div className="mt-2">
-              <SyncIndicator />
-            </div>
-          </div>
-
-          {/* Existing Projects */}
-          {Object.keys(projects).length > 0 ? (
-            <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-              <h2 className="text-xl font-bold text-gray-800 mb-4">Your Projects</h2>
-              <div className="grid gap-4">
-                {Object.values(projects)
-                  .sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified))
-                  .map((project) => (
-                  <div 
-                    key={project.id} 
-                    className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors cursor-pointer group"
-                    onClick={() => loadProject(project.id)}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          {editingProjectName === project.id ? (
-                            <div className="flex items-center gap-2 flex-1">
-                              <input
-                                type="text"
-                                value={editingProjectValue}
-                                onChange={(e) => setEditingProjectValue(e.target.value)}
-                                onKeyPress={(e) => {
-                                  if (e.key === 'Enter') {
-                                    if (editingProjectValue.trim()) {
-                                      setProjects(currentProjects => {
-                                        const newProjects = {};
-                                        Object.keys(currentProjects).forEach(key => {
-                                          if (key === project.id) {
-                                            newProjects[key] = {
-                                              ...currentProjects[key],
-                                              name: editingProjectValue.trim(),
-                                              lastModified: new Date().toISOString()
-                                            };
-                                          } else {
-                                            newProjects[key] = currentProjects[key];
-                                          }
-                                        });
-                                        return newProjects;
-                                      });
-                                    }
-                                    setEditingProjectName(null);
-                                    setEditingProjectValue('');
-                                  }
-                                  if (e.key === 'Escape') {
-                                    setEditingProjectName(null);
-                                    setEditingProjectValue('');
-                                  }
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="text-lg font-semibold text-gray-800 bg-white border border-gray-400 rounded px-2 py-1 outline-none flex-1"
-                                autoFocus
-                              />
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (editingProjectValue.trim()) {
-                                    setProjects(currentProjects => {
-                                      const newProjects = {};
-                                      Object.keys(currentProjects).forEach(key => {
-                                        if (key === project.id) {
-                                          newProjects[key] = {
-                                            ...currentProjects[key],
-                                            name: editingProjectValue.trim(),
-                                            lastModified: new Date().toISOString()
-                                          };
-                                        } else {
-                                          newProjects[key] = currentProjects[key];
-                                        }
-                                      });
-                                      return newProjects;
-                                    });
-                                  }
-                                  setEditingProjectName(null);
-                                  setEditingProjectValue('');
-                                }}
-                                className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs transition-colors"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingProjectName(null);
-                                  setEditingProjectValue('');
-                                }}
-                                className="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs transition-colors"
-                              >
-                                Cancel
-                              </button>
+            handleRealTimeInput(cardId, field, value, inputElement) {
+                // Update the card data
+                this.cards = this.cards.map(card => {
+                    if (card.id === cardId) {
+                        const updatedCard = { ...card, [field]: value };
+                        // Remove placeholder flag once user starts typing
+                        if (value.trim()) {
+                            updatedCard.isPlaceholder = false;
+                        }
+                        return updatedCard;
+                    }
+                    return card;
+                });
+                
+                // Immediately update the text color based on content
+                if (value.trim()) {
+                    // User has typed something - make it black
+                    inputElement.className = inputElement.className.replace('text-gray-400', 'text-black');
+                } else {
+                    // User cleared the field - make it gray again
+                    inputElement.className = inputElement.className.replace('text-black', 'text-gray-400');
+                }
+                
+                // Save the data (but don't re-render to avoid losing focus)
+                this.updateCurrentProject();
+            }
+            
+            deleteCard(cardId) {
+                this.cards = this.cards.filter(card => card.id !== cardId);
+                this.editingCard = null;
+                this.updateCurrentProject();
+                this.render();
+            }
+            
+            updateCurrentProject() {
+                if (this.currentProject) {
+                    this.projects[this.currentProject] = {
+                        ...this.projects[this.currentProject],
+                        cards: this.cards,
+                        lastModified: new Date().toISOString()
+                    };
+                    this.saveData();
+                }
+            }
+            
+            updateSyncIndicator() {
+                const indicator = document.getElementById('sync-indicator');
+                if (indicator) {
+                    let status = 'Ready';
+                    let color = 'text-green-500';
+                    
+                    if (!this.isOnline) {
+                        status = 'Offline';
+                        color = 'text-red-500';
+                    } else if (this.syncStatus === 'syncing') {
+                        status = 'Syncing...';
+                        color = 'text-blue-500';
+                    } else if (this.syncStatus === 'error') {
+                        status = 'Sync Error';
+                        color = 'text-yellow-500';
+                    }
+                    
+                    indicator.className = `text-xs ${color}`;
+                    indicator.textContent = status;
+                }
+            }
+            
+            render() {
+                const root = document.getElementById('root');
+                
+                if (this.showProjectManager) {
+                    root.innerHTML = this.renderProjectManager();
+                } else {
+                    root.innerHTML = this.renderCardView();
+                }
+                
+                this.attachEventListeners();
+                this.updateSyncIndicator();
+            }
+            
+            renderProjectManager() {
+                const projectsList = Object.values(this.projects)
+                    .sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified))
+                    .map(project => `
+                        <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors cursor-pointer group" onclick="app.loadProject('${project.id}')">
+                            <div class="flex justify-between items-start">
+                                <div class="flex-1">
+                                    <div class="flex items-center gap-2">
+                                        ${this.editingProject === project.id ? `
+                                            <input type="text" id="edit-project-${project.id}" value="${project.name}" class="text-lg font-semibold text-gray-800 bg-white border border-gray-400 rounded px-2 py-1 outline-none flex-1" onclick="event.stopPropagation()">
+                                            <button onclick="event.stopPropagation(); app.saveProjectName('${project.id}')" class="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs transition-colors">Save</button>
+                                            <button onclick="event.stopPropagation(); app.editingProject = null; app.render()" class="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs transition-colors">Cancel</button>
+                                        ` : `
+                                            <h3 class="text-lg font-semibold text-gray-800">${project.name}</h3>
+                                            <button onclick="event.stopPropagation(); app.editingProject = '${project.id}'; app.render()" class="bg-gray-200 hover:bg-gray-300 text-gray-600 px-2 py-1 rounded text-xs transition-colors flex items-center gap-1">
+                                                ✏️ Rename
+                                            </button>
+                                        `}
+                                    </div>
+                                    <p class="text-sm text-gray-600 mt-1">
+                                        ${project.cards?.length || 0} cards • Last modified: ${new Date(project.lastModified).toLocaleDateString()}
+                                    </p>
+                                </div>
+                                <div class="flex gap-2 ml-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onclick="event.stopPropagation(); app.exportProject('${project.id}')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors">
+                                        Export
+                                    </button>
+                                    <button onclick="event.stopPropagation(); app.deleteProject('${project.id}')" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition-colors">
+                                        Delete
+                                    </button>
+                                </div>
                             </div>
-                          ) : (
-                            <>
-                              <h3 className="text-lg font-semibold text-gray-800 hover:text-blue-600 transition-colors">
-                                {project.name}
-                              </h3>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingProjectName(project.id);
-                                  setEditingProjectValue(project.name);
-                                }}
-                                className="bg-gray-200 hover:bg-gray-300 text-gray-600 px-2 py-1 rounded text-xs transition-colors flex items-center gap-1"
-                              >
-                                <Edit3 size={10} />
-                                Rename
-                              </button>
-                            </>
-                          )}
                         </div>
-                        <p className="text-sm text-gray-600 mt-1">
-                          {project.cards?.length || 0} cards • Last modified: {new Date(project.lastModified).toLocaleDateString()}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Created: {new Date(project.created).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <div className="flex gap-2 ml-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const tempCurrentProject = currentProject;
-                            const tempCards = cards;
-                            setCurrentProject(project.id);
-                            setCards(project.cards || []);
+                    `).join('');
+                
+                const hasProjects = Object.keys(this.projects).length > 0;
+                
+                return `
+                    <div class="min-h-screen bg-amber-50 p-6">
+                        <div class="max-w-4xl mx-auto">
+                            <div class="text-center mb-8">
+                                <h1 class="text-4xl font-bold text-amber-900 mb-2">Story Cards</h1>
+                                <p class="text-amber-800">Manage your story projects</p>
+                                <div class="mt-2">
+                                    <span id="sync-indicator" class="text-xs text-green-500">Ready</span>
+                                </div>
+                            </div>
                             
-                            // Create and trigger download
-                            const dataStr = JSON.stringify(project, null, 2);
-                            const dataBlob = new Blob([dataStr], { type: 'application/json' });
-                            const url = URL.createObjectURL(dataBlob);
-                            const link = document.createElement('a');
-                            link.href = url;
-                            link.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}.json`;
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                            URL.revokeObjectURL(url);
+                            ${hasProjects ? `
+                                <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+                                    <h2 class="text-xl font-bold text-gray-800 mb-4">Your Projects</h2>
+                                    <div class="grid gap-4">
+                                        ${projectsList}
+                                    </div>
+                                    <div class="flex justify-center mt-4">
+                                        <button onclick="app.showCreateProject = true; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white w-12 h-12 rounded-full flex items-center justify-center transition-colors shadow-lg hover:shadow-xl">
+                                            <span class="text-2xl">+</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            ` : `
+                                <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+                                    <div class="text-center py-12 text-gray-500">
+                                        <div class="text-5xl mb-4">📁</div>
+                                        <p class="mb-4">No projects yet. Create your first project!</p>
+                                        <button onclick="app.showCreateProject = true; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white w-12 h-12 rounded-full flex items-center justify-center transition-colors shadow-lg hover:shadow-xl mx-auto">
+                                            <span class="text-2xl">+</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            `}
                             
-                            // Restore previous state
-                            setCurrentProject(tempCurrentProject);
-                            setCards(tempCards);
-                          }}
-                          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors flex items-center gap-1"
-                        >
-                          <Download size={12} />
-                          Export
-                        </button>
-                        {showDeleteProjectConfirm === project.id ? (
-                          <div className="flex items-center gap-2 bg-red-50 p-2 rounded">
-                            <span className="text-sm text-red-700">Delete this project?</span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setProjects(currentProjects => {
-                                  const newProjects = {};
-                                  Object.keys(currentProjects).forEach(key => {
-                                    if (key !== project.id) {
-                                      newProjects[key] = currentProjects[key];
-                                    }
-                                  });
-                                  return newProjects;
-                                });
+                            ${this.showCreateProject ? `
+                                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                                    <div class="bg-white rounded-lg shadow-xl p-6 w-96 max-w-90vw">
+                                        <h2 class="text-xl font-bold text-gray-800 mb-4">Create New Project</h2>
+                                        <input type="text" id="project-name-input" placeholder="Enter project name..." class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 mb-4">
+                                        <div class="flex gap-3 justify-end">
+                                            <button onclick="app.showCreateProject = false; app.render()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors">
+                                                Cancel
+                                            </button>
+                                            <button onclick="app.createProjectFromInput()" class="bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                                                Create
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            renderCardView() {
+                const currentProjectName = this.projects[this.currentProject]?.name || 'Untitled Project';
+                
+                const cardsList = this.cards.map((card, index) => {
+                    // Determine display values and placeholder status
+                    const displayTitle = card.title || (card.isPlaceholder ? 'New Scene' : '');
+                    const displayContent = card.content || (card.isPlaceholder ? 'Add your scene details here...' : '');
+                    const displayTitleClass = card.isPlaceholder && !card.title ? 'font-bold mb-2 text-sm text-gray-400' : 'font-bold mb-2 text-sm';
+                    const displayContentClass = card.isPlaceholder && !card.content ? 'flex-1 whitespace-pre-wrap text-xs text-gray-400' : 'flex-1 whitespace-pre-wrap text-xs';
+                
+                    return `
+                        <div class="bg-white shadow-lg cursor-move transition-all duration-200 hover:shadow-xl card-background" 
+                             style="width: 350px; height: 250px;" 
+                             draggable="true" 
+                             ondragstart="app.handleDragStart(event, ${card.id}, ${index})"
+                             ondragover="app.handleDragOver(event, ${index})"
+                             ondrop="app.handleDrop(event, ${index})"
+                             ondragenter="event.preventDefault()"
+                             ondragleave="app.handleDragLeave(event)"
+                             id="card-${card.id}">
+                            <div class="card-header-line"></div>
+                            <div class="absolute top-2 right-2 text-gray-400" style="cursor: grab;">⋮⋮</div>
+                            
+                            <div class="p-3 h-full flex flex-col">
+                                ${this.editingCard === card.id ? `
+                                    <input type="text" 
+                                           id="title-input-${card.id}"
+                                           value="${card.title}" 
+                                           placeholder="New Scene"
+                                           onchange="app.updateCard(${card.id}, 'title', this.value)" 
+                                           oninput="app.handleRealTimeInput(${card.id}, 'title', this.value, this)"
+                                           onfocus="if(this.value === '' && app.cards.find(c => c.id === ${card.id}).isPlaceholder) this.value = ''"
+                                           class="font-bold text-sm mb-2 bg-transparent border-none outline-none ${card.isPlaceholder && !card.title ? 'text-gray-400' : 'text-black'}" 
+                                           style="font-family: system-ui;">
+                                    <textarea id="content-input-${card.id}"
+                                              placeholder="Add your scene details here..." 
+                                              onchange="app.updateCard(${card.id}, 'content', this.value)" 
+                                              oninput="app.handleRealTimeInput(${card.id}, 'content', this.value, this)"
+                                              onfocus="if(this.value === '' && app.cards.find(c => c.id === ${card.id}).isPlaceholder) this.value = ''"
+                                              class="flex-1 bg-transparent border-none outline-none resize-none text-xs leading-relaxed ${card.isPlaceholder && !card.content ? 'text-gray-400' : 'text-black'}" 
+                                              style="font-family: system-ui;">${card.content}</textarea>
+                                    <div class="flex gap-2 mt-2">
+                                        <button onclick="app.editingCard = null; app.render()" class="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs transition-colors">Save</button>
+                                        <button onclick="if(confirm('Delete this card?')) app.deleteCard(${card.id})" class="bg-red-500 hover:bg-red-700 text-white px-2 py-1 rounded text-xs transition-colors">Delete</button>
+                                    </div>
+                                ` : `
+                                    <div class="flex flex-col h-full cursor-text" onclick="app.editingCard = ${card.id}; app.render()">
+                                        <h3 class="${displayTitleClass}" style="font-family: system-ui;">${displayTitle}</h3>
+                                        <div class="${displayContentClass}" style="font-family: system-ui; line-height: 1.4;">${displayContent}</div>
+                                    </div>
+                                `}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                return `
+                    <div class="min-h-screen dot-background">
+                        <div class="p-6">
+                            <div class="mb-6 text-center">
+                                <div class="flex items-center justify-center gap-4 mb-4">
+                                    <button onclick="app.showProjectManager = true; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                                        ← Projects
+                                    </button>
+                                    <div class="text-center">
+                                        <h1 class="text-3xl font-bold text-amber-900">${currentProjectName}</h1>
+                                        <p class="text-amber-800 text-sm">
+                                            ${this.cards.length} scenes • <span id="sync-indicator" class="text-xs text-green-500">Ready</span>
+                                        </p>
+                                    </div>
+                                    <button onclick="app.exportCurrentProject()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors">
+                                        Export
+                                    </button>
+                                </div>
                                 
-                                if (currentProject === project.id) {
-                                  setCurrentProject(null);
-                                  setCards([]);
-                                  setShowProjectManager(true);
-                                }
-                                setShowDeleteProjectConfirm(null);
-                              }}
-                              className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs transition-colors"
-                            >
-                              Yes
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowDeleteProjectConfirm(null);
-                              }}
-                              className="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs transition-colors"
-                            >
-                              No
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowDeleteProjectConfirm(project.id);
-                            }}
-                            className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition-colors flex items-center gap-1"
-                          >
-                            <Trash2 size={12} />
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              
-              {/* Add New Project Button */}
-              <div className="flex justify-center mt-4">
-                <button
-                  onClick={() => setShowCreateProject(true)}
-                  className="bg-amber-600 hover:bg-amber-700 text-white w-12 h-12 rounded-full flex items-center justify-center transition-colors shadow-lg hover:shadow-xl"
-                  title="Create New Project"
-                >
-                  <Plus size={24} />
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-              <div className="text-center py-12 text-gray-500">
-                <FolderOpen size={48} className="mx-auto mb-4 opacity-50" />
-                <p className="mb-4">No projects yet. Create your first project!</p>
-                <button
-                  onClick={() => setShowCreateProject(true)}
-                  className="bg-amber-600 hover:bg-amber-700 text-white w-12 h-12 rounded-full flex items-center justify-center transition-colors shadow-lg hover:shadow-xl mx-auto"
-                  title="Create New Project"
-                >
-                  <Plus size={24} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Create New Project Popup */}
-          {showCreateProject && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-w-90vw">
-                <h2 className="text-xl font-bold text-gray-800 mb-4">Create New Project</h2>
-                <input
-                  type="text"
-                  placeholder="Enter project name..."
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && createNewProject()}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 mb-4"
-                  autoFocus
-                />
-                <div className="flex gap-3 justify-end">
-                  <button
-                    onClick={() => {
-                      setShowCreateProject(false);
-                      setNewProjectName('');
-                    }}
-                    className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={createNewProject}
-                    disabled={!newProjectName.trim()}
-                    className="bg-amber-700 hover:bg-amber-800 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-                  >
-                    Create
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Main Card Organizer View
-  return (
-    <div className="min-h-screen" style={{
-      backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23D2B48C' fill-opacity='0.4'%3E%3Ccircle cx='7' cy='7' r='1'/%3E%3Ccircle cx='27' cy='7' r='1'/%3E%3Ccircle cx='47' cy='7' r='1'/%3E%3Ccircle cx='7' cy='27' r='1'/%3E%3Ccircle cx='27' cy='27' r='1'/%3E%3Ccircle cx='47' cy='27' r='1'/%3E%3Ccircle cx='7' cy='47' r='1'/%3E%3Ccircle cx='27' cy='47' r='1'/%3E%3Ccircle cx='47' cy='47' r='1'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-      backgroundColor: '#D2B48C'
-    }}>
-      <div className="p-6">
-        <div className="mb-6 text-center">
-          <div className="flex items-center justify-center gap-4 mb-4">
-            <button
-              onClick={() => setShowProjectManager(true)}
-              className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-            >
-              <ArrowLeft size={16} />
-              Projects
-            </button>
-            <div className="text-center">
-              <h1 className="text-3xl font-bold text-amber-900 select-text">
-                {projects[currentProject]?.name || 'Untitled Project'}
-              </h1>
-              <p className="text-amber-800 text-sm">
-                {cards.length} scenes • <SyncIndicator />
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={exportProject}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-              >
-                <Download size={16} />
-                Export
-              </button>
-            </div>
-          </div>
-          
-          <button
-            onClick={() => setShowAddCard(!showAddCard)}
-            className="bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 mx-auto transition-colors"
-          >
-            <Plus size={16} />
-            Add New Card
-          </button>
-        </div>
-
-        {showAddCard && (
-          <div className="mb-6 max-w-md mx-auto bg-white p-4 rounded-lg shadow-lg border border-gray-200">
-            <input
-              type="text"
-              placeholder="Card title..."
-              value={newCard.title}
-              onChange={(e) => setNewCard({ ...newCard, title: e.target.value })}
-              className="w-full p-2 border border-gray-300 rounded mb-2 font-bold"
-            />
-            <textarea
-              placeholder="Card content..."
-              value={newCard.content}
-              onChange={(e) => setNewCard({ ...newCard, content: e.target.value })}
-              className="w-full p-2 border border-gray-300 rounded h-24 resize-none"
-            />
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={() => addNewCard()}
-                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm transition-colors"
-              >
-                Add Card
-              </button>
-              <button
-                onClick={() => setShowAddCard(false)}
-                className="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div 
-          className="flex flex-wrap gap-4 max-h-[70vh] overflow-y-auto p-4 justify-center"
-          style={{ 
-            alignContent: 'flex-start'
-          }}
-        >
-          {cards.map((card, index) => (
-            <div
-              key={card.id}
-              ref={el => cardRefs.current[card.id] = el}
-              draggable
-              onDragStart={(e) => handleDragStart(e, card, index)}
-              onDragOver={(e) => handleDragOver(e, index)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, index)}
-              className={`
-                bg-white shadow-lg cursor-move transition-all duration-200 hover:shadow-xl
-                ${dragOverIndex === index ? 'transform scale-105 ring-2 ring-blue-400' : ''}
-                ${draggedCard?.index === index ? 'opacity-50' : ''}
-              `}
-              style={{
-                width: '200px',
-                height: '250px',
-                backgroundImage: `repeating-linear-gradient(
-                  transparent,
-                  transparent 19px,
-                  #e5e7eb 19px,
-                  #e5e7eb 20px
-                )`,
-                paddingTop: '30px',
-                position: 'relative'
-              }}
-            >
-              {/* Pink header line */}
-              <div 
-                className="absolute top-0 left-0 right-0 bg-pink-300"
-                style={{ height: '3px', marginTop: '22px' }}
-              />
-              
-              {/* Drag handle */}
-              <div className="absolute top-2 right-2 text-gray-400 hover:text-gray-600">
-                <GripVertical size={14} />
-              </div>
-
-              {/* Card content */}
-              <div className="p-3 h-full flex flex-col">
-                {editingCard === card.id ? (
-                  <div className="flex flex-col h-full">
-                    <input
-                      type="text"
-                      value={card.title}
-                      onChange={(e) => handleCardEdit(card.id, 'title', e.target.value)}
-                      className="font-bold text-sm mb-2 bg-transparent border-none outline-none"
-                      style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}
-                      autoFocus
-                    />
-                    <textarea
-                      value={card.content}
-                      onChange={(e) => handleCardEdit(card.id, 'content', e.target.value)}
-                      className="flex-1 bg-transparent border-none outline-none resize-none text-xs leading-relaxed"
-                      style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}
-                    />
-                    <div className="flex gap-2 mt-2">
-                      <button
-                        onClick={() => setEditingCard(null)}
-                        className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs transition-colors"
-                      >
-                        Save
-                      </button>
-                      {showDeleteCardConfirm === card.id ? (
-                        <div className="flex gap-1">
-                          <span className="text-xs text-red-600 mr-2">Delete this card?</span>
-                          <button
-                            onClick={() => deleteCard(card.id)}
-                            className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs transition-colors"
-                          >
-                            Yes
-                          </button>
-                          <button
-                            onClick={() => setShowDeleteCardConfirm(null)}
-                            className="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs transition-colors"
-                          >
-                            No
-                          </button>
+                                <button onclick="app.addCard()" class="bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 rounded-lg transition-colors">
+                                    + Add New Card
+                                </button>
+                            </div>
+                            
+                            <div class="flex flex-wrap gap-4 max-h-[70vh] overflow-y-auto p-4 justify-center" style="align-content: flex-start;">
+                                ${cardsList}
+                            </div>
+                            
+                            ${this.cards.length === 0 ? `
+                                <div class="text-center py-12 text-amber-800">
+                                    <p class="text-lg">No cards yet. Click "Add New Card" to get started!</p>
+                                </div>
+                            ` : ''}
                         </div>
-                      ) : (
-                        <button
-                          onClick={() => deleteCard(card.id)}
-                          className="bg-red-500 hover:bg-red-700 text-white px-2 py-1 rounded text-xs transition-colors"
-                        >
-                          Delete
-                        </button>
-                      )}
                     </div>
-                  </div>
-                ) : (
-                  <div 
-                    className="flex flex-col h-full cursor-text"
-                    onClick={() => setEditingCard(card.id)}
-                  >
-                    <h3 
-                      className={`font-bold mb-2 ${adjustFontSize(card.title)}`}
-                      style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}
-                    >
-                      {card.title}
-                    </h3>
-                    <div 
-                      className={`flex-1 whitespace-pre-wrap ${adjustFontSize(card.content)}`}
-                      style={{ 
-                        fontFamily: 'system-ui, -apple-system, sans-serif',
-                        lineHeight: '1.4'
-                      }}
-                    >
-                      {card.content}
-                    </div>
-                    <div className="absolute top-2 left-2 opacity-0 hover:opacity-100 transition-opacity">
-                      <Edit3 size={12} className="text-gray-400" />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+                `;
+            }
+            
+            attachEventListeners() {
+                // Add keyboard event listener for create project
+                const input = document.getElementById('project-name-input');
+                if (input) {
+                    input.focus();
+                    input.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter') {
+                            this.createProjectFromInput();
+                        }
+                    });
+                }
+            }
+            
+            createProjectFromInput() {
+                const input = document.getElementById('project-name-input');
+                if (input && input.value.trim()) {
+                    this.createProject(input.value);
+                }
+            }
+            
+            deleteProject(id) {
+                if (confirm('Are you sure you want to delete this project? This cannot be undone.')) {
+                    delete this.projects[id];
+                    if (this.currentProject === id) {
+                        this.currentProject = null;
+                        this.cards = [];
+                        this.showProjectManager = true;
+                    }
+                    this.saveData();
+                    this.render();
+                }
+            }
 
-        {cards.length === 0 && (
-          <div className="text-center py-12 text-amber-800">
-            <p className="text-lg">No cards yet. Click "Add New Card" to get started!</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
+            saveProjectName(id) {
+                const input = document.getElementById(`edit-project-${id}`);
+                if (input && input.value.trim()) {
+                    this.projects[id] = {
+                        ...this.projects[id],
+                        name: input.value.trim(),
+                        lastModified: new Date().toISOString()
+                    };
+                    this.editingProject = null;
+                    this.saveData();
+                    this.render();
+                }
+            }
 
-// Render the app
-ReactDOM.render(<FictionCardOrganizer />, document.getElementById('root'));
+            handleDragStart(event, cardId, index) {
+                this.draggedCard = { cardId, index };
+                event.dataTransfer.effectAllowed = 'move';
+                event.target.style.opacity = '0.5';
+            }
+            
+            handleDragOver(event, index) {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                
+                // Visual feedback
+                const cards = document.querySelectorAll('[id^="card-"]');
+                cards.forEach(card => card.style.transform = '');
+                
+                if (this.draggedCard && this.draggedCard.index !== index) {
+                    const targetCard = document.getElementById(`card-${this.cards[index].id}`);
+                    if (targetCard) {
+                        targetCard.style.transform = 'scale(1.05)';
+                        targetCard.style.boxShadow = '0 0 20px rgba(59, 130, 246, 0.5)';
+                    }
+                }
+            }
+            
+            handleDragLeave(event) {
+                const targetCard = event.target.closest('[id^="card-"]');
+                if (targetCard) {
+                    targetCard.style.transform = '';
+                    targetCard.style.boxShadow = '';
+                }
+            }
+            
+            handleDrop(event, dropIndex) {
+                event.preventDefault();
+                
+                // Clear visual feedback
+                const cards = document.querySelectorAll('[id^="card-"]');
+                cards.forEach(card => {
+                    card.style.opacity = '';
+                    card.style.transform = '';
+                    card.style.boxShadow = '';
+                });
+                
+                if (this.draggedCard && this.draggedCard.index !== dropIndex) {
+                    const newCards = [...this.cards];
+                    const [movedCard] = newCards.splice(this.draggedCard.index, 1);
+                    newCards.splice(dropIndex, 0, movedCard);
+                    
+                    this.cards = newCards;
+                    this.updateCurrentProject();
+                    this.render();
+                }
+                
+                this.draggedCard = null;
+            }
+                        
+            exportProject(id) {
+                const project = this.projects[id];
+                if (project) {
+                    const dataStr = JSON.stringify(project, null, 2);
+                    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+                    const url = URL.createObjectURL(dataBlob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}.json`;
+                    link.click();
+                    URL.revokeObjectURL(url);
+                }
+            }
+            
+            exportCurrentProject() {
+                if (this.currentProject) {
+                    this.exportProject(this.currentProject);
+                }
+            }
+        }
+        
+        // Initialize the app
+        const app = new StoryCardsApp();
+    </script>
+</body>
+</html>
