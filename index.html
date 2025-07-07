@@ -464,7 +464,7 @@
                                     <div class="absolute bottom-2 right-2">
                                         <button onclick="if(confirm('Delete this card?')) app.deleteCard(${card.id})" 
                                                 class="text-gray-400 hover:text-red-500 transition-colors text-sm"
-                                                title="Delete card"><span class="fa-sharp fa-regular fa-trash"></span></button>
+                                                title="Delete card"><i class="fa-sharp fa-regular fa-trash"></i></button>
                                     </div>
                                 ` : `
                                     <div class="flex flex-col h-full cursor-text" onclick="app.editingCard = ${card.id}; app.render()">
