@@ -31,6 +31,19 @@
             background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23D2B48C' fill-opacity='0.4'%3E%3Ccircle cx='7' cy='7' r='1'/%3E%3Ccircle cx='27' cy='7' r='1'/%3E%3Ccircle cx='47' cy='7' r='1'/%3E%3Ccircle cx='7' cy='27' r='1'/%3E%3Ccircle cx='27' cy='27' r='1'/%3E%3Ccircle cx='47' cy='27' r='1'/%3E%3Ccircle cx='7' cy='47' r='1'/%3E%3Ccircle cx='27' cy='47' r='1'/%3E%3Ccircle cx='47' cy='47' r='1'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
             background-color: #D2B48C;
         }
+        .drag-handle {
+            touch-action: none;
+            user-select: none;
+        }
+        .dragging-touch {
+            opacity: 0.7;
+            transform: scale(1.05);
+            z-index: 1000;
+        }
+        .drop-target-touch {
+            transform: scale(1.02);
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+        }
     </style>
 </head>
 <body>
@@ -51,6 +64,12 @@
                 this.syncStatus = 'idle';
                 this.isOnline = navigator.onLine;
                 this.draggedCard = null;
+                
+                // Touch drag properties
+                this.touchDragActive = false;
+                this.touchStartTime = 0;
+                this.touchStartPos = { x: 0, y: 0 };
+                this.longPressTimer = null;
                 
                 this.loadData();
                 this.render();
@@ -180,9 +199,9 @@
             addCard() {
                 const newCard = {
                     id: Date.now(),
-                    title: '',  // Empty string instead of 'New Scene'
-                    content: '', // Empty string instead of placeholder text
-                    isPlaceholder: true // Flag to track if it's still using placeholders
+                    title: '',
+                    content: '',
+                    isPlaceholder: true
                 };
                 
                 this.cards.push(newCard);
@@ -194,7 +213,6 @@
                 this.cards = this.cards.map(card => {
                     if (card.id === cardId) {
                         const updatedCard = { ...card, [field]: value };
-                        // Remove placeholder flag once user starts typing
                         if (value.trim()) {
                             updatedCard.isPlaceholder = false;
                         }
@@ -206,11 +224,9 @@
             }
 
             handleRealTimeInput(cardId, field, value, inputElement) {
-                // Update the card data
                 this.cards = this.cards.map(card => {
                     if (card.id === cardId) {
                         const updatedCard = { ...card, [field]: value };
-                        // Remove placeholder flag once user starts typing
                         if (value.trim()) {
                             updatedCard.isPlaceholder = false;
                         }
@@ -219,16 +235,12 @@
                     return card;
                 });
                 
-                // Immediately update the text color based on content
                 if (value.trim()) {
-                    // User has typed something - make it black
                     inputElement.className = inputElement.className.replace('text-gray-400', 'text-black');
                 } else {
-                    // User cleared the field - make it gray again
                     inputElement.className = inputElement.className.replace('text-black', 'text-gray-400');
                 }
                 
-                // Save the data (but don't re-render to avoid losing focus)
                 this.updateCurrentProject();
             }
             
@@ -382,7 +394,6 @@
                 const currentProjectName = this.projects[this.currentProject]?.name || 'Untitled Project';
                 
                 const cardsList = this.cards.map((card, index) => {
-                    // Determine display values and placeholder status
                     const displayTitle = card.title || (card.isPlaceholder ? 'New Scene' : '');
                     const displayContent = card.content || (card.isPlaceholder ? 'Add your scene details here...' : '');
                     const displayTitleClass = card.isPlaceholder && !card.title ? 'font-bold mb-2 text-sm text-gray-400' : 'font-bold mb-2 text-sm';
@@ -399,7 +410,12 @@
                              ondragleave="app.handleDragLeave(event)"
                              id="card-${card.id}">
                             <div class="card-header-line"></div>
-                            <div class="absolute top-2 right-2 text-gray-400" style="cursor: grab;">⋮⋮</div>
+                            <div class="absolute top-2 right-2 text-gray-400 drag-handle" 
+                                 ontouchstart="app.handleTouchStart(event, ${card.id}, ${index})"
+                                 ontouchmove="app.handleTouchMove(event, ${index})"
+                                 ontouchend="app.handleTouchEnd(event)"
+                                 ontouchcancel="app.handleTouchEnd(event)"
+                                 style="cursor: grab;">⋮⋮</div>
                             
                             <div class="p-3 h-full flex flex-col">
                                 ${this.editingCard === card.id ? `
@@ -473,7 +489,6 @@
             }
             
             attachEventListeners() {
-                // Add keyboard event listener for create project
                 const input = document.getElementById('project-name-input');
                 if (input) {
                     input.focus();
@@ -519,6 +534,7 @@
                 }
             }
 
+            // Original mouse drag handlers
             handleDragStart(event, cardId, index) {
                 this.draggedCard = { cardId, index };
                 event.dataTransfer.effectAllowed = 'move';
@@ -529,7 +545,6 @@
                 event.preventDefault();
                 event.dataTransfer.dropEffect = 'move';
                 
-                // Visual feedback
                 const cards = document.querySelectorAll('[id^="card-"]');
                 cards.forEach(card => card.style.transform = '');
                 
@@ -553,7 +568,6 @@
             handleDrop(event, dropIndex) {
                 event.preventDefault();
                 
-                // Clear visual feedback
                 const cards = document.querySelectorAll('[id^="card-"]');
                 cards.forEach(card => {
                     card.style.opacity = '';
@@ -573,7 +587,124 @@
                 
                 this.draggedCard = null;
             }
+
+            // Touch drag handlers for mobile
+            handleTouchStart(event, cardId, index) {
+                event.preventDefault();
+                event.stopPropagation();
+                
+                this.touchStartTime = Date.now();
+                this.touchStartPos = {
+                    x: event.touches[0].clientX,
+                    y: event.touches[0].clientY
+                };
+                
+                this.longPressTimer = setTimeout(() => {
+                    this.startTouchDrag(cardId, index);
+                }, 500);
+            }
+            
+            handleTouchMove(event, index) {
+                if (this.longPressTimer) {
+                    const touch = event.touches[0];
+                    const deltaX = Math.abs(touch.clientX - this.touchStartPos.x);
+                    const deltaY = Math.abs(touch.clientY - this.touchStartPos.y);
+                    
+                    if (deltaX > 10 || deltaY > 10) {
+                        clearTimeout(this.longPressTimer);
+                        this.longPressTimer = null;
+                    }
+                }
+                
+                if (this.touchDragActive) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    
+                    const touch = event.touches[0];
+                    const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+                    const cardElement = elementBelow?.closest('[id^="card-"]');
+                    
+                    if (cardElement) {
+                        const cardId = cardElement.id.split('-')[1];
+                        const targetIndex = this.cards.findIndex(card => card.id == cardId);
                         
+                        if (targetIndex !== -1 && targetIndex !== this.draggedCard?.index) {
+                            this.highlightTouchDropTarget(targetIndex);
+                        }
+                    }
+                }
+            }
+            
+            handleTouchEnd(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                
+                if (this.longPressTimer) {
+                    clearTimeout(this.longPressTimer);
+                    this.longPressTimer = null;
+                }
+                
+                if (this.touchDragActive) {
+                    const touch = event.changedTouches[0];
+                    const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+                    const cardElement = elementBelow?.closest('[id^="card-"]');
+                    
+                    if (cardElement && this.draggedCard) {
+                        const cardId = cardElement.id.split('-')[1];
+                        const dropIndex = this.cards.findIndex(card => card.id == cardId);
+                        
+                        if (dropIndex !== -1 && dropIndex !== this.draggedCard.index) {
+                            const newCards = [...this.cards];
+                            const [movedCard] = newCards.splice(this.draggedCard.index, 1);
+                            newCards.splice(dropIndex, 0, movedCard);
+                            
+                            this.cards = newCards;
+                            this.updateCurrentProject();
+                        }
+                    }
+                    
+                    this.endTouchDrag();
+                }
+            }
+            
+            startTouchDrag(cardId, index) {
+                this.touchDragActive = true;
+                this.draggedCard = { cardId, index };
+                
+                const card = document.getElementById(`card-${cardId}`);
+                if (card) {
+                    card.classList.add('dragging-touch');
+                }
+                
+                if (navigator.vibrate) {
+                    navigator.vibrate(50);
+                }
+            }
+            
+            endTouchDrag() {
+                this.touchDragActive = false;
+                
+                const cards = document.querySelectorAll('[id^="card-"]');
+                cards.forEach(card => {
+                    card.classList.remove('dragging-touch', 'drop-target-touch');
+                });
+                
+                this.draggedCard = null;
+                this.render();
+            }
+            
+            highlightTouchDropTarget(index) {
+                const cards = document.querySelectorAll('[id^="card-"]');
+                cards.forEach(card => card.classList.remove('drop-target-touch'));
+                
+                if (this.cards[index]) {
+                    const targetCard = document.getElementById(`card-${this.cards[index].id}`);
+                    if (targetCard) {
+                        targetCard.classList.add('drop-target-touch');
+                    }
+                }
+            }
+            
             exportProject(id) {
                 const project = this.projects[id];
                 if (project) {
