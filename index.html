@@ -72,6 +72,7 @@
                 this.longPressTimer = null;
                 
                 this.loadData();
+                this.checkURLOnLoad();
                 this.render();
                 this.setupEventListeners();
             }
@@ -158,6 +159,29 @@
                     this.isOnline = false;
                     this.updateSyncIndicator();
                 });
+                
+                // Handle browser back/forward buttons
+                window.addEventListener('hashchange', () => {
+                    this.checkURLOnLoad();
+                });
+            }
+            
+            checkURLOnLoad() {
+                const hash = window.location.hash;
+                if (hash.startsWith('#project-')) {
+                    const projectId = hash.replace('#project-', '');
+                    if (this.projects[projectId]) {
+                        this.currentProject = projectId;
+                        this.cards = [...this.projects[projectId].cards];
+                        this.showProjectManager = false;
+                        this.render();
+                        return;
+                    }
+                }
+                // If no valid project hash, show project manager
+                this.showProjectManager = true;
+                this.currentProject = null;
+                this.cards = [];
             }
             
             createProject(name) {
@@ -192,6 +216,7 @@
                     this.currentProject = id;
                     this.cards = [...project.cards];
                     this.showProjectManager = false;
+                    window.location.hash = `project-${id}`;
                     this.render();
                 }
             }
@@ -435,9 +460,10 @@
                                               onfocus="if(this.value === '' && app.cards.find(c => c.id === ${card.id}).isPlaceholder) this.value = ''"
                                               class="flex-1 bg-transparent border-none outline-none resize-none text-xs leading-relaxed ${card.isPlaceholder && !card.content ? 'text-gray-400' : 'text-black'}" 
                                               style="font-family: system-ui;">${card.content}</textarea>
-                                    <div class="flex gap-2 mt-2">
-                                        <button onclick="app.editingCard = null; app.render()" class="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs transition-colors">Save</button>
-                                        <button onclick="if(confirm('Delete this card?')) app.deleteCard(${card.id})" class="bg-red-500 hover:bg-red-700 text-white px-2 py-1 rounded text-xs transition-colors">Delete</button>
+                                    <div class="absolute bottom-2 right-2">
+                                        <button onclick="if(confirm('Delete this card?')) app.deleteCard(${card.id})" 
+                                                class="text-gray-400 hover:text-red-500 transition-colors text-sm"
+                                                title="Delete card">🗑️</button>
                                     </div>
                                 ` : `
                                     <div class="flex flex-col h-full cursor-text" onclick="app.editingCard = ${card.id}; app.render()">
@@ -455,7 +481,7 @@
                         <div class="p-6">
                             <div class="mb-6 text-center">
                                 <div class="flex items-center justify-center gap-4 mb-4">
-                                    <button onclick="app.showProjectManager = true; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                                    <button onclick="app.showProjectManager = true; window.location.hash = ''; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
                                         ← Projects
                                     </button>
                                     <div class="text-center">
