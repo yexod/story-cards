@@ -31,26 +31,6 @@
             background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23D2B48C' fill-opacity='0.4'%3E%3Ccircle cx='7' cy='7' r='1'/%3E%3Ccircle cx='27' cy='7' r='1'/%3E%3Ccircle cx='47' cy='7' r='1'/%3E%3Ccircle cx='7' cy='27' r='1'/%3E%3Ccircle cx='27' cy='27' r='1'/%3E%3Ccircle cx='47' cy='27' r='1'/%3E%3Ccircle cx='7' cy='47' r='1'/%3E%3Ccircle cx='27' cy='47' r='1'/%3E%3Ccircle cx='47' cy='47' r='1'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
             background-color: #D2B48C;
         }
-        .drag-handle {
-            cursor: grab;
-            user-select: none;
-            -webkit-user-select: none;
-            -moz-user-select: none;
-            -ms-user-select: none;
-        }
-        .drag-handle:active {
-            cursor: grabbing;
-        }
-        .dragging {
-            opacity: 0.5;
-            transform: scale(1.05);
-            z-index: 1000;
-            position: relative;
-        }
-        .drop-target {
-            transform: scale(1.02);
-            box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
-        }
     </style>
 </head>
 <body>
@@ -71,10 +51,6 @@
                 this.syncStatus = 'idle';
                 this.isOnline = navigator.onLine;
                 this.draggedCard = null;
-                this.isDragging = false;
-                this.touchStartTime = 0;
-                this.longPressTimer = null;
-                this.touchStartPos = { x: 0, y: 0 };
                 
                 this.loadData();
                 this.render();
@@ -423,12 +399,7 @@
                              ondragleave="app.handleDragLeave(event)"
                              id="card-${card.id}">
                             <div class="card-header-line"></div>
-                            <div class="absolute top-2 right-2 text-gray-400 drag-handle text-lg" 
-                                 style="touch-action: none;"
-                                 ontouchstart="app.handleTouchStart(event, ${card.id}, ${index})"
-                                 ontouchmove="app.handleTouchMove(event, ${index})"
-                                 ontouchend="app.handleTouchEnd(event)"
-                                 ontouchcancel="app.handleTouchEnd(event)">⋮⋮</div>
+                            <div class="absolute top-2 right-2 text-gray-400" style="cursor: grab;">⋮⋮</div>
                             
                             <div class="p-3 h-full flex flex-col">
                                 ${this.editingCard === card.id ? `
@@ -548,7 +519,6 @@
                 }
             }
 
-            // Mouse drag handlers
             handleDragStart(event, cardId, index) {
                 this.draggedCard = { cardId, index };
                 event.dataTransfer.effectAllowed = 'move';
@@ -603,135 +573,30 @@
                 
                 this.draggedCard = null;
             }
-
-            // Touch drag handlers
-            handleTouchStart(event, cardId, index) {
-                event.preventDefault();
-                event.stopPropagation();
-                
-                this.touchStartTime = Date.now();
-                this.touchStartPos = {
-                    x: event.touches[0].clientX,
-                    y: event.touches[0].clientY
-                };
-                
-                // Start long press timer
-                this.longPressTimer = setTimeout(() => {
-                    this.startTouchDrag(cardId, index, event.target);
-                }, 500); // 500ms long press
-            }
-            
-            handleTouchMove(event, index) {
-                if (this.longPressTimer) {
-                    // Check if we've moved too far during long press
-                    const touch = event.touches[0];
-                    const deltaX = Math.abs(touch.clientX - this.touchStartPos.x);
-                    const deltaY = Math.abs(touch.clientY - this.touchStartPos.y);
-                    
-                    if (deltaX > 10 || deltaY > 10) {
-                        clearTimeout(this.longPressTimer);
-                        this.longPressTimer = null;
-                    }
-                }
-                
-                if (this.isDragging) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    
-                    const touch = event.touches[0];
-                    const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
-                    
-                    // Find the card element
-                    const cardElement = elementBelow?.closest('[id^="card-"]');
-                    if (cardElement) {
-                        const cardId = cardElement.id.split('-')[1];
-                        const targetIndex = this.cards.findIndex(card => card.id == cardId);
                         
-                        if (targetIndex !== -1 && targetIndex !== this.draggedCard?.index) {
-                            this.highlightDropTarget(targetIndex);
-                        }
-                    }
+            exportProject(id) {
+                const project = this.projects[id];
+                if (project) {
+                    const dataStr = JSON.stringify(project, null, 2);
+                    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+                    const url = URL.createObjectURL(dataBlob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}.json`;
+                    link.click();
+                    URL.revokeObjectURL(url);
                 }
             }
             
-            handleTouchEnd(event) {
-                event.preventDefault();
-                event.stopPropagation();
-                
-                // Clear long press timer
-                if (this.longPressTimer) {
-                    clearTimeout(this.longPressTimer);
-                    this.longPressTimer = null;
-                }
-                
-                if (this.isDragging) {
-                    // Get the element under the touch point
-                    const touch = event.changedTouches[0];
-                    const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
-                    const cardElement = elementBelow?.closest('[id^="card-"]');
-                    
-                    if (cardElement && this.draggedCard) {
-                        const cardId = cardElement.id.split('-')[1];
-                        const dropIndex = this.cards.findIndex(card => card.id == cardId);
-                        
-                        if (dropIndex !== -1 && dropIndex !== this.draggedCard.index) {
-                            // Perform the reorder
-                            const newCards = [...this.cards];
-                            const [movedCard] = newCards.splice(this.draggedCard.index, 1);
-                            newCards.splice(dropIndex, 0, movedCard);
-                            
-                            this.cards = newCards;
-                            this.updateCurrentProject();
-                        }
-                    }
-                    
-                    this.endTouchDrag();
+            exportCurrentProject() {
+                if (this.currentProject) {
+                    this.exportProject(this.currentProject);
                 }
             }
-            
-            startTouchDrag(cardId, index, handle) {
-                this.isDragging = true;
-                this.draggedCard = { cardId, index };
-                
-                // Add visual feedback
-                const card = document.getElementById(`card-${cardId}`);
-                if (card) {
-                    card.classList.add('dragging');
-                }
-                
-                // Provide haptic feedback if available
-                if (navigator.vibrate) {
-                    navigator.vibrate(50);
-                }
-            }
-            
-            endTouchDrag() {
-                this.isDragging = false;
-                
-                // Clear all visual feedback
-                const cards = document.querySelectorAll('[id^="card-"]');
-                cards.forEach(card => {
-                    card.classList.remove('dragging', 'drop-target');
-                    card.style.transform = '';
-                    card.style.boxShadow = '';
-                });
-                
-                this.draggedCard = null;
-                
-                // Re-render to ensure clean state
-                this.render();
-            }
-            
-            highlightDropTarget(index) {
-                // Clear previous highlights
-                const cards = document.querySelectorAll('[id^="card-"]');
-                cards.forEach(card => card.classList.remove('drop-target'));
-                
-                // Highlight new target
-                if (this.cards[index]) {
-                    const targetCard = document.getElementById(`card-${this.cards[index].id}`);
-                    if (targetCard) {
-                        targetCard.classList.add('drop-target');
-                    }
-                }
-            }
+        }
+        
+        // Initialize the app
+        const app = new StoryCardsApp();
+    </script>
+</body>
+</html>
