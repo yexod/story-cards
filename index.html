@@ -73,7 +73,7 @@
                 
                 // Zoom functionality
                 this.zoomLevel = parseFloat(localStorage.getItem('cardZoomLevel')) || 100;
-                this.zoomLevels = [50, 75, 100, 125, 150];
+                this.zoomLevels = [75, 100, 125, 150, 200];
                 
                 this.loadData();
                 this.checkURLOnLoad();
@@ -347,6 +347,13 @@
             render() {
                 const root = document.getElementById('root');
                 
+                // Save current scroll position before re-rendering
+                let scrollPosition = 0;
+                const scrollContainer = document.querySelector('.max-h-\\[70vh\\]');
+                if (scrollContainer) {
+                    scrollPosition = scrollContainer.scrollTop;
+                }
+                
                 if (this.showProjectManager) {
                     root.innerHTML = this.renderProjectManager();
                 } else {
@@ -355,6 +362,16 @@
                 
                 this.attachEventListeners();
                 this.updateSyncIndicator();
+                
+                // Restore scroll position after re-rendering
+                if (!this.showProjectManager) {
+                    setTimeout(() => {
+                        const newScrollContainer = document.querySelector('.max-h-\\[70vh\\]');
+                        if (newScrollContainer && scrollPosition > 0) {
+                            newScrollContainer.scrollTop = scrollPosition;
+                        }
+                    }, 0);
+                }
             }
             
             renderProjectManager() {
