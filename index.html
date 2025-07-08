@@ -66,6 +66,7 @@
                 this.editingCard = null;
                 this.editingProject = null;
                 this.showCreateProject = false;
+                this.showImportProject = false;
                 this.syncStatus = 'idle';
                 this.isOnline = navigator.onLine;
                 this.draggedCard = null;
@@ -218,6 +219,7 @@
                 this.cards = [...newProject.cards];
                 this.showProjectManager = false;
                 this.showCreateProject = false;
+                this.showImportProject = false;
                 
                 this.saveData();
                 this.render();
@@ -448,9 +450,12 @@
                                     <div class="grid gap-4">
                                         ${projectsList}
                                     </div>
-                                    <div class="flex justify-center mt-4">
+                                    <div class="flex justify-between items-center mt-4">
                                         <button onclick="app.showCreateProject = true; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white w-12 h-12 rounded-full flex items-center justify-center transition-colors shadow-lg hover:shadow-xl">
                                             <span class="text-2xl">+</span>
+                                        </button>
+                                        <button onclick="app.showImportProject = true; app.render()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                                            📁 Import
                                         </button>
                                     </div>
                                 </div>
@@ -465,6 +470,24 @@
                                     </div>
                                 </div>
                             `}
+                            
+                            ${this.showImportProject ? `
+                                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                                    <div class="bg-white rounded-lg shadow-xl p-6 w-96 max-w-90vw">
+                                        <h2 class="text-xl font-bold text-gray-800 mb-4">Import Project</h2>
+                                        <p class="text-sm text-gray-600 mb-4">Select a JSON file exported from Story Cards to import:</p>
+                                        <input type="file" id="import-file-input" accept=".json" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-4">
+                                        <div class="flex gap-3 justify-end">
+                                            <button onclick="app.showImportProject = false; app.render()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors">
+                                                Cancel
+                                            </button>
+                                            <button onclick="app.importProjectFromFile()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                                                Import
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ` : ''}
                             
                             ${this.showCreateProject ? `
                                 <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -554,19 +577,16 @@
                     <div class="min-h-screen dot-background relative">
                         <div class="p-6">
                             <div class="mb-6 text-center">
-                                <div class="flex items-center justify-center gap-4 mb-4">
-                                    <button onclick="app.showProjectManager = true; window.location.hash = ''; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                                <div class="flex items-center gap-4 mb-4">
+                                    <button onclick="app.showProjectManager = true; window.location.hash = ''; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors fixed left-4 top-6 z-10">
                                         ← Projects
                                     </button>
-                                    <div class="text-center">
+                                    <div class="text-center flex-1">
                                         <h1 class="text-3xl font-bold text-amber-900">${currentProjectName}</h1>
                                         <p class="text-amber-800 text-sm">
                                             ${this.cards.length} scenes • <span id="sync-indicator" class="text-xs text-green-500">Ready</span>
                                         </p>
                                     </div>
-                                    <button onclick="app.exportCurrentProject()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors">
-                                        Export
-                                    </button>
                                 </div>
                                 
                                 <button onclick="app.addCard()" class="bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 rounded-lg transition-colors">
@@ -611,6 +631,16 @@
                         }
                     });
                 }
+                
+                const importInput = document.getElementById('import-file-input');
+                if (importInput) {
+                    importInput.addEventListener('change', (e) => {
+                        if (e.target.files.length > 0) {
+                            // Auto-import when file is selected
+                            this.importProjectFromFile();
+                        }
+                    });
+                }
             }
             
             createProjectFromInput() {
@@ -618,6 +648,53 @@
                 if (input && input.value.trim()) {
                     this.createProject(input.value);
                 }
+            }
+            
+            importProjectFromFile() {
+                const fileInput = document.getElementById('import-file-input');
+                if (!fileInput || !fileInput.files.length) {
+                    alert('Please select a JSON file to import.');
+                    return;
+                }
+                
+                const file = fileInput.files[0];
+                const reader = new FileReader();
+                
+                reader.onload = (e) => {
+                    try {
+                        const projectData = JSON.parse(e.target.result);
+                        
+                        // Validate that this looks like a Story Cards project
+                        if (!projectData.name || !projectData.cards || !Array.isArray(projectData.cards)) {
+                            alert('Invalid project file. Please select a valid Story Cards export.');
+                            return;
+                        }
+                        
+                        // Generate new ID and update timestamps
+                        const newId = Date.now().toString();
+                        const importedProject = {
+                            ...projectData,
+                            id: newId,
+                            name: projectData.name + ' (Imported)',
+                            lastModified: new Date().toISOString(),
+                            imported: new Date().toISOString()
+                        };
+                        
+                        // Add to projects
+                        this.projects[newId] = importedProject;
+                        this.showImportProject = false;
+                        this.saveData();
+                        this.render();
+                        
+                        alert(`Successfully imported "${projectData.name}" with ${projectData.cards.length} cards!`);
+                        
+                    } catch (error) {
+                        console.error('Import error:', error);
+                        alert('Error importing file. Please make sure it\'s a valid JSON file exported from Story Cards.');
+                    }
+                };
+                
+                reader.readAsText(file);
             }
             
             deleteProject(id) {
