@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Story Cards</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
         body { margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
         #root { min-height: 100vh; }
@@ -72,6 +71,10 @@
                 this.touchStartPos = { x: 0, y: 0 };
                 this.longPressTimer = null;
                 
+                // Zoom functionality
+                this.zoomLevel = parseFloat(localStorage.getItem('cardZoomLevel')) || 100;
+                this.zoomLevels = [50, 75, 100, 125, 150];
+                
                 this.loadData();
                 this.checkURLOnLoad();
                 this.render();
@@ -92,6 +95,7 @@
             saveData() {
                 try {
                     localStorage.setItem('storyCardsProjects', JSON.stringify(this.projects));
+                    localStorage.setItem('cardZoomLevel', this.zoomLevel.toString());
                     this.syncToGitHub();
                 } catch (error) {
                     console.error('Error saving data:', error);
@@ -277,6 +281,33 @@
                 this.render();
             }
             
+            zoomIn() {
+                const currentIndex = this.zoomLevels.indexOf(this.zoomLevel);
+                if (currentIndex < this.zoomLevels.length - 1) {
+                    this.zoomLevel = this.zoomLevels[currentIndex + 1];
+                    this.saveData();
+                    this.render();
+                }
+            }
+            
+            zoomOut() {
+                const currentIndex = this.zoomLevels.indexOf(this.zoomLevel);
+                if (currentIndex > 0) {
+                    this.zoomLevel = this.zoomLevels[currentIndex - 1];
+                    this.saveData();
+                    this.render();
+                }
+            }
+            
+            getCardDimensions() {
+                const scale = this.zoomLevel / 100;
+                return {
+                    width: Math.round(350 * scale),
+                    height: Math.round(250 * scale),
+                    gap: Math.round(16 * scale)
+                };
+            }
+            
             updateCurrentProject() {
                 if (this.currentProject) {
                     this.projects[this.currentProject] = {
@@ -418,6 +449,7 @@
             
             renderCardView() {
                 const currentProjectName = this.projects[this.currentProject]?.name || 'Untitled Project';
+                const dimensions = this.getCardDimensions();
                 
                 const cardsList = this.cards.map((card, index) => {
                     const displayTitle = card.title || (card.isPlaceholder ? 'New Scene' : '');
@@ -427,7 +459,7 @@
                 
                     return `
                         <div class="bg-white shadow-lg cursor-move transition-all duration-200 hover:shadow-xl card-background" 
-                             style="width: 350px; height: 250px;" 
+                             style="width: ${dimensions.width}px; height: ${dimensions.height}px;" 
                              draggable="true" 
                              ondragstart="app.handleDragStart(event, ${card.id}, ${index})"
                              ondragover="app.handleDragOver(event, ${index})"
@@ -464,7 +496,7 @@
                                     <div class="absolute bottom-2 right-2">
                                         <button onclick="if(confirm('Delete this card?')) app.deleteCard(${card.id})" 
                                                 class="text-gray-400 hover:text-red-500 transition-colors text-sm"
-                                                title="Delete card"><i class="fa-sharp fa-solid fa-trash"></i></button>
+                                                title="Delete card">🗑️</button>
                                     </div>
                                 ` : `
                                     <div class="flex flex-col h-full cursor-text" onclick="app.editingCard = ${card.id}; app.render()">
@@ -478,7 +510,7 @@
                 }).join('');
                 
                 return `
-                    <div class="min-h-screen dot-background">
+                    <div class="min-h-screen dot-background relative">
                         <div class="p-6">
                             <div class="mb-6 text-center">
                                 <div class="flex items-center justify-center gap-4 mb-4">
@@ -501,7 +533,7 @@
                                 </button>
                             </div>
                             
-                            <div class="flex flex-wrap gap-4 max-h-[70vh] overflow-y-auto p-4 justify-center" style="align-content: flex-start;">
+                            <div class="flex flex-wrap justify-center max-h-[70vh] overflow-y-auto p-4" style="gap: ${dimensions.gap}px; align-content: flex-start;">
                                 ${cardsList}
                             </div>
                             
@@ -510,6 +542,19 @@
                                     <p class="text-lg">No cards yet. Click "Add New Card" to get started!</p>
                                 </div>
                             ` : ''}
+                        </div>
+                        
+                        <!-- Zoom Control Pills -->
+                        <div class="fixed bottom-4 right-4 bg-white rounded-full shadow-lg border border-gray-200 flex overflow-hidden">
+                            <button onclick="app.zoomOut()" 
+                                    class="px-3 py-2 hover:bg-gray-50 transition-colors border-r border-gray-200 text-gray-600 ${this.zoomLevel === this.zoomLevels[0] ? 'opacity-50 cursor-not-allowed' : ''}"
+                                    ${this.zoomLevel === this.zoomLevels[0] ? 'disabled' : ''}
+                                    title="Zoom Out">−</button>
+                            <div class="px-3 py-2 text-xs text-gray-600 bg-gray-50 border-r border-gray-200 min-w-[50px] text-center">${this.zoomLevel}%</div>
+                            <button onclick="app.zoomIn()" 
+                                    class="px-3 py-2 hover:bg-gray-50 transition-colors text-gray-600 ${this.zoomLevel === this.zoomLevels[this.zoomLevels.length - 1] ? 'opacity-50 cursor-not-allowed' : ''}"
+                                    ${this.zoomLevel === this.zoomLevels[this.zoomLevels.length - 1] ? 'disabled' : ''}
+                                    title="Zoom In">+</button>
                         </div>
                     </div>
                 `;
