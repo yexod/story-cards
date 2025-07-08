@@ -304,7 +304,10 @@
                 return {
                     width: Math.round(350 * scale),
                     height: Math.round(250 * scale),
-                    gap: Math.round(16 * scale)
+                    gap: Math.round(16 * scale),
+                    titleFontSize: Math.round(14 * scale),
+                    contentFontSize: Math.round(12 * scale),
+                    padding: Math.round(12 * scale)
                 };
             }
             
@@ -475,7 +478,7 @@
                                  ontouchcancel="app.handleTouchEnd(event)"
                                  style="cursor: grab;">⋮⋮</div>
                             
-                            <div class="p-3 h-full flex flex-col">
+                            <div class="h-full flex flex-col" style="padding: ${dimensions.padding}px;">
                                 ${this.editingCard === card.id ? `
                                     <input type="text" 
                                            id="title-input-${card.id}"
@@ -484,24 +487,25 @@
                                            onchange="app.updateCard(${card.id}, 'title', this.value)" 
                                            oninput="app.handleRealTimeInput(${card.id}, 'title', this.value, this)"
                                            onfocus="if(this.value === '' && app.cards.find(c => c.id === ${card.id}).isPlaceholder) this.value = ''"
-                                           class="font-bold text-sm mb-2 bg-transparent border-none outline-none ${card.isPlaceholder && !card.title ? 'text-gray-400' : 'text-black'}" 
-                                           style="font-family: system-ui;">
+                                           class="font-bold mb-2 bg-transparent border-none outline-none ${card.isPlaceholder && !card.title ? 'text-gray-400' : 'text-black'}" 
+                                           style="font-family: system-ui; font-size: ${dimensions.titleFontSize}px;">
                                     <textarea id="content-input-${card.id}"
                                               placeholder="Add your scene details here..." 
                                               onchange="app.updateCard(${card.id}, 'content', this.value)" 
                                               oninput="app.handleRealTimeInput(${card.id}, 'content', this.value, this)"
                                               onfocus="if(this.value === '' && app.cards.find(c => c.id === ${card.id}).isPlaceholder) this.value = ''"
-                                              class="flex-1 bg-transparent border-none outline-none resize-none text-xs leading-relaxed ${card.isPlaceholder && !card.content ? 'text-gray-400' : 'text-black'}" 
-                                              style="font-family: system-ui;">${card.content}</textarea>
+                                              class="flex-1 bg-transparent border-none outline-none resize-none leading-relaxed ${card.isPlaceholder && !card.content ? 'text-gray-400' : 'text-black'}" 
+                                              style="font-family: system-ui; font-size: ${dimensions.contentFontSize}px;">${card.content}</textarea>
                                     <div class="absolute bottom-2 right-2">
                                         <button onclick="if(confirm('Delete this card?')) app.deleteCard(${card.id})" 
-                                                class="text-gray-400 hover:text-red-500 transition-colors text-sm"
+                                                class="text-gray-400 hover:text-red-500 transition-colors"
+                                                style="font-size: ${dimensions.contentFontSize}px;"
                                                 title="Delete card">🗑️</button>
                                     </div>
                                 ` : `
                                     <div class="flex flex-col h-full cursor-text" onclick="app.editingCard = ${card.id}; app.render()">
-                                        <h3 class="${displayTitleClass}" style="font-family: system-ui;">${displayTitle}</h3>
-                                        <div class="${displayContentClass}" style="font-family: system-ui; line-height: 1.4;">${displayContent}</div>
+                                        <h3 class="${displayTitleClass}" style="font-family: system-ui; font-size: ${dimensions.titleFontSize}px;">${displayTitle}</h3>
+                                        <div class="${displayContentClass}" style="font-family: system-ui; line-height: 1.4; font-size: ${dimensions.contentFontSize}px;">${displayContent}</div>
                                     </div>
                                 `}
                             </div>
@@ -547,12 +551,12 @@
                         <!-- Zoom Control Pills -->
                         <div class="fixed bottom-4 right-4 bg-white rounded-full shadow-lg border border-gray-200 flex overflow-hidden">
                             <button onclick="app.zoomOut()" 
-                                    class="px-3 py-2 hover:bg-gray-50 transition-colors border-r border-gray-200 text-gray-600 ${this.zoomLevel === this.zoomLevels[0] ? 'opacity-50 cursor-not-allowed' : ''}"
+                                    class="px-3 py-2 hover:bg-gray-50 transition-colors border-r border-gray-200 text-gray-600 flex items-center justify-center ${this.zoomLevel === this.zoomLevels[0] ? 'opacity-50 cursor-not-allowed' : ''}"
                                     ${this.zoomLevel === this.zoomLevels[0] ? 'disabled' : ''}
                                     title="Zoom Out">−</button>
-                            <div class="px-3 py-2 text-xs text-gray-600 bg-gray-50 border-r border-gray-200 min-w-[50px] text-center">${this.zoomLevel}%</div>
+                            <div class="px-3 py-2 text-xs text-gray-600 bg-gray-50 border-r border-gray-200 min-w-[50px] flex items-center justify-center">${this.zoomLevel}%</div>
                             <button onclick="app.zoomIn()" 
-                                    class="px-3 py-2 hover:bg-gray-50 transition-colors text-gray-600 ${this.zoomLevel === this.zoomLevels[this.zoomLevels.length - 1] ? 'opacity-50 cursor-not-allowed' : ''}"
+                                    class="px-3 py-2 hover:bg-gray-50 transition-colors text-gray-600 flex items-center justify-center ${this.zoomLevel === this.zoomLevels[this.zoomLevels.length - 1] ? 'opacity-50 cursor-not-allowed' : ''}"
                                     ${this.zoomLevel === this.zoomLevels[this.zoomLevels.length - 1] ? 'disabled' : ''}
                                     title="Zoom In">+</button>
                         </div>
