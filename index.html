@@ -45,6 +45,10 @@
             transform: scale(1.02);
             box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
         }
+        .cards-container {
+            max-height: 70vh;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
@@ -75,6 +79,9 @@
                 // Zoom functionality
                 this.zoomLevel = parseFloat(localStorage.getItem('cardZoomLevel')) || 100;
                 this.zoomLevels = [50, 75, 100, 125, 150];
+                
+                // Scroll preservation
+                this.savedScrollPosition = 0;
                 
                 this.loadData();
                 this.checkURLOnLoad();
@@ -345,15 +352,30 @@
                 }
             }
             
+            saveScrollPosition() {
+                const scrollContainer = document.querySelector('.cards-container');
+                if (scrollContainer) {
+                    this.savedScrollPosition = scrollContainer.scrollTop;
+                }
+            }
+            
+            restoreScrollPosition() {
+                if (this.savedScrollPosition > 0) {
+                    const scrollContainer = document.querySelector('.cards-container');
+                    if (scrollContainer) {
+                        scrollContainer.scrollTop = this.savedScrollPosition;
+                    }
+                }
+            }
+            
+            editCard(cardId) {
+                this.saveScrollPosition();
+                this.editingCard = cardId;
+                this.render();
+            }
+            
             render() {
                 const root = document.getElementById('root');
-                
-                // Save current scroll position before re-rendering
-                let scrollPosition = 0;
-                const scrollContainer = document.querySelector('.max-h-\\[70vh\\]');
-                if (scrollContainer) {
-                    scrollPosition = scrollContainer.scrollTop;
-                }
                 
                 if (this.showProjectManager) {
                     root.innerHTML = this.renderProjectManager();
@@ -364,14 +386,11 @@
                 this.attachEventListeners();
                 this.updateSyncIndicator();
                 
-                // Restore scroll position after re-rendering
+                // Restore scroll position after DOM is ready
                 if (!this.showProjectManager) {
-                    setTimeout(() => {
-                        const newScrollContainer = document.querySelector('.max-h-\\[70vh\\]');
-                        if (newScrollContainer && scrollPosition > 0) {
-                            newScrollContainer.scrollTop = scrollPosition;
-                        }
-                    }, 0);
+                    requestAnimationFrame(() => {
+                        this.restoreScrollPosition();
+                    });
                 }
             }
             
@@ -521,7 +540,7 @@
                                                 title="Delete card"><i class="fa-sharp fa-solid fa-trash"></i></button>
                                     </div>
                                 ` : `
-                                    <div class="flex flex-col h-full cursor-text" onclick="app.editingCard = ${card.id}; app.render()">
+                                    <div class="flex flex-col h-full cursor-text" onclick="app.editCard(${card.id})">
                                         <h3 class="${displayTitleClass}" style="font-family: system-ui; font-size: ${dimensions.titleFontSize}px;">${displayTitle}</h3>
                                         <div class="${displayContentClass}" style="font-family: system-ui; line-height: 1.4; font-size: ${dimensions.contentFontSize}px;">${displayContent}</div>
                                     </div>
@@ -555,7 +574,7 @@
                                 </button>
                             </div>
                             
-                            <div class="flex flex-wrap justify-center max-h-[70vh] overflow-y-auto p-4" style="gap: ${dimensions.gap}px; align-content: flex-start;">
+                            <div class="cards-container flex flex-wrap justify-center p-4" style="gap: ${dimensions.gap}px; align-content: flex-start;">
                                 ${cardsList}
                             </div>
                             
