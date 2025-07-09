@@ -7,8 +7,15 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
-        body { margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+        body { margin: 0; padding: 0; }
         #root { min-height: 100vh; }
+        
+        /* Consolidated base styles */
+        .card-text { font-family: system-ui, -apple-system, sans-serif; }
+        .transition-standard { transition: all 0.2s ease; }
+        .text-dynamic { color: #000; }
+        .text-dynamic.placeholder { color: #9ca3af; }
+        
         .card-background {
             background-image: repeating-linear-gradient(
                 transparent,
@@ -55,9 +62,18 @@
     <div id="root"></div>
     
     <script>
-        // Simple Story Cards App - No external dependencies
-        
         class StoryCardsApp {
+            // Constants
+            static ZOOM_LEVELS = [50, 75, 100, 125, 150];
+            static LONG_PRESS_DURATION = 500;
+            static VIBRATION_DURATION = 50;
+            static CARD_BASE_WIDTH = 350;
+            static CARD_BASE_HEIGHT = 250;
+            static CARD_BASE_GAP = 16;
+            static TITLE_FONT_SIZE = 14;
+            static CONTENT_FONT_SIZE = 12;
+            static CARD_PADDING = 12;
+            
             constructor() {
                 this.projects = {};
                 this.currentProject = null;
@@ -77,17 +93,46 @@
                 this.touchStartPos = { x: 0, y: 0 };
                 this.longPressTimer = null;
                 
-                // Zoom functionality
+                // Zoom functionality with caching
                 this.zoomLevel = parseFloat(localStorage.getItem('cardZoomLevel')) || 100;
-                this.zoomLevels = [50, 75, 100, 125, 150];
+                this.dimensionsCache = new Map();
                 
                 // Scroll preservation
                 this.savedScrollPosition = 0;
+                
+                // Debounced save
+                this.debouncedSave = this.debounce(this.saveData.bind(this), 300);
                 
                 this.loadData();
                 this.checkURLOnLoad();
                 this.render();
                 this.setupEventListeners();
+            }
+            
+            // Utility methods
+            debounce(func, wait) {
+                let timeout;
+                return function executedFunction(...args) {
+                    const later = () => {
+                        clearTimeout(timeout);
+                        func(...args);
+                    };
+                    clearTimeout(timeout);
+                    timeout = setTimeout(later, wait);
+                };
+            }
+            
+            updateState(updates) {
+                Object.assign(this, updates);
+                this.render();
+            }
+            
+            getCardElement(cardId) {
+                return document.getElementById(`card-${cardId}`);
+            }
+            
+            getTextClass(card, field) {
+                return card.isPlaceholder && !card[field] ? 'text-gray-400' : 'text-black';
             }
             
             loadData() {
@@ -118,7 +163,6 @@
                     this.syncStatus = 'syncing';
                     this.updateSyncIndicator();
                     
-                    // Get current file SHA
                     let sha = null;
                     try {
                         const getCurrentFile = await fetch(
@@ -150,11 +194,7 @@
                         }
                     );
                     
-                    if (response.ok) {
-                        this.syncStatus = 'synced';
-                    } else {
-                        this.syncStatus = 'error';
-                    }
+                    this.syncStatus = response.ok ? 'synced' : 'error';
                 } catch (error) {
                     this.syncStatus = 'error';
                     console.error('Sync error:', error);
@@ -174,9 +214,22 @@
                     this.updateSyncIndicator();
                 });
                 
-                // Handle browser back/forward buttons
                 window.addEventListener('hashchange', () => {
                     this.checkURLOnLoad();
+                });
+                
+                // Event delegation
+                document.addEventListener('click', (e) => {
+                    const target = e.target;
+                    const action = target.dataset.action;
+                    
+                    if (action === 'edit-card') {
+                        this.editCard(parseInt(target.dataset.cardId));
+                    } else if (action === 'delete-card') {
+                        if (confirm('Delete this card?')) {
+                            this.deleteCard(parseInt(target.dataset.cardId));
+                        }
+                    }
                 });
             }
             
@@ -192,7 +245,6 @@
                         return;
                     }
                 }
-                // If no valid project hash, show project manager
                 this.showProjectManager = true;
                 this.currentProject = null;
                 this.cards = [];
@@ -215,14 +267,15 @@
                 };
                 
                 this.projects[id] = newProject;
-                this.currentProject = id;
-                this.cards = [...newProject.cards];
-                this.showProjectManager = false;
-                this.showCreateProject = false;
-                this.showImportProject = false;
+                this.updateState({
+                    currentProject: id,
+                    cards: [...newProject.cards],
+                    showProjectManager: false,
+                    showCreateProject: false,
+                    showImportProject: false
+                });
                 
-                this.saveData();
-                this.render();
+                this.debouncedSave();
             }
             
             loadProject(id) {
@@ -249,21 +302,8 @@
                 this.render();
             }
             
-            updateCard(cardId, field, value) {
-                this.cards = this.cards.map(card => {
-                    if (card.id === cardId) {
-                        const updatedCard = { ...card, [field]: value };
-                        if (value.trim()) {
-                            updatedCard.isPlaceholder = false;
-                        }
-                        return updatedCard;
-                    }
-                    return card;
-                });
-                this.updateCurrentProject();
-            }
-
-            handleRealTimeInput(cardId, field, value, inputElement) {
+            // Consolidated update method
+            updateCard(cardId, field, value, inputElement = null) {
                 this.cards = this.cards.map(card => {
                     if (card.id === cardId) {
                         const updatedCard = { ...card, [field]: value };
@@ -275,10 +315,13 @@
                     return card;
                 });
                 
-                if (value.trim()) {
-                    inputElement.className = inputElement.className.replace('text-gray-400', 'text-black');
-                } else {
-                    inputElement.className = inputElement.className.replace('text-black', 'text-gray-400');
+                // Handle real-time UI updates if element provided
+                if (inputElement) {
+                    if (value.trim()) {
+                        inputElement.className = inputElement.className.replace('text-gray-400', 'text-black');
+                    } else {
+                        inputElement.className = inputElement.className.replace('text-black', 'text-gray-400');
+                    }
                 }
                 
                 this.updateCurrentProject();
@@ -286,39 +329,47 @@
             
             deleteCard(cardId) {
                 this.cards = this.cards.filter(card => card.id !== cardId);
-                this.editingCard = null;
+                this.updateState({ editingCard: null });
                 this.updateCurrentProject();
-                this.render();
             }
             
             zoomIn() {
-                const currentIndex = this.zoomLevels.indexOf(this.zoomLevel);
-                if (currentIndex < this.zoomLevels.length - 1) {
-                    this.zoomLevel = this.zoomLevels[currentIndex + 1];
-                    this.saveData();
+                const currentIndex = StoryCardsApp.ZOOM_LEVELS.indexOf(this.zoomLevel);
+                if (currentIndex < StoryCardsApp.ZOOM_LEVELS.length - 1) {
+                    this.zoomLevel = StoryCardsApp.ZOOM_LEVELS[currentIndex + 1];
+                    this.dimensionsCache.clear();
+                    this.debouncedSave();
                     this.render();
                 }
             }
             
             zoomOut() {
-                const currentIndex = this.zoomLevels.indexOf(this.zoomLevel);
+                const currentIndex = StoryCardsApp.ZOOM_LEVELS.indexOf(this.zoomLevel);
                 if (currentIndex > 0) {
-                    this.zoomLevel = this.zoomLevels[currentIndex - 1];
-                    this.saveData();
+                    this.zoomLevel = StoryCardsApp.ZOOM_LEVELS[currentIndex - 1];
+                    this.dimensionsCache.clear();
+                    this.debouncedSave();
                     this.render();
                 }
             }
             
             getCardDimensions() {
+                if (this.dimensionsCache.has(this.zoomLevel)) {
+                    return this.dimensionsCache.get(this.zoomLevel);
+                }
+                
                 const scale = this.zoomLevel / 100;
-                return {
-                    width: Math.round(350 * scale),
-                    height: Math.round(250 * scale),
-                    gap: Math.round(16 * scale),
-                    titleFontSize: Math.round(14 * scale),
-                    contentFontSize: Math.round(12 * scale),
-                    padding: Math.round(12 * scale)
+                const dimensions = {
+                    width: Math.round(StoryCardsApp.CARD_BASE_WIDTH * scale),
+                    height: Math.round(StoryCardsApp.CARD_BASE_HEIGHT * scale),
+                    gap: Math.round(StoryCardsApp.CARD_BASE_GAP * scale),
+                    titleFontSize: Math.round(StoryCardsApp.TITLE_FONT_SIZE * scale),
+                    contentFontSize: Math.round(StoryCardsApp.CONTENT_FONT_SIZE * scale),
+                    padding: Math.round(StoryCardsApp.CARD_PADDING * scale)
                 };
+                
+                this.dimensionsCache.set(this.zoomLevel, dimensions);
+                return dimensions;
             }
             
             updateCurrentProject() {
@@ -328,7 +379,7 @@
                         cards: this.cards,
                         lastModified: new Date().toISOString()
                     };
-                    this.saveData();
+                    this.debouncedSave();
                 }
             }
             
@@ -372,8 +423,49 @@
             
             editCard(cardId) {
                 this.saveScrollPosition();
-                this.editingCard = cardId;
-                this.render();
+                this.updateState({ editingCard: cardId });
+            }
+            
+            // Template rendering methods
+            renderCardEditMode(card, dimensions) {
+                return `
+                    <input type="text" 
+                           id="title-input-${card.id}"
+                           value="${card.title}" 
+                           placeholder="New Scene"
+                           onchange="app.updateCard(${card.id}, 'title', this.value)" 
+                           oninput="app.updateCard(${card.id}, 'title', this.value, this)"
+                           onfocus="if(this.value === '' && app.cards.find(c => c.id === ${card.id}).isPlaceholder) this.value = ''"
+                           class="font-bold mb-2 bg-transparent border-none outline-none card-text ${this.getTextClass(card, 'title')}" 
+                           style="font-size: ${dimensions.titleFontSize}px;">
+                    <textarea id="content-input-${card.id}"
+                              placeholder="Add your scene details here..." 
+                              onchange="app.updateCard(${card.id}, 'content', this.value)" 
+                              oninput="app.updateCard(${card.id}, 'content', this.value, this)"
+                              onfocus="if(this.value === '' && app.cards.find(c => c.id === ${card.id}).isPlaceholder) this.value = ''"
+                              class="flex-1 bg-transparent border-none outline-none resize-none leading-relaxed card-text ${this.getTextClass(card, 'content')}" 
+                              style="font-size: ${dimensions.contentFontSize}px;">${card.content}</textarea>
+                    <div class="absolute bottom-2 right-2">
+                        <button data-action="delete-card" data-card-id="${card.id}"
+                                class="text-gray-400 hover:text-red-500 transition-standard"
+                                style="font-size: ${dimensions.contentFontSize}px;"
+                                title="Delete card"><i class="fa-sharp fa-solid fa-trash"></i></button>
+                    </div>
+                `;
+            }
+            
+            renderCardViewMode(card, dimensions) {
+                const displayTitle = card.title || (card.isPlaceholder ? 'New Scene' : '');
+                const displayContent = card.content || (card.isPlaceholder ? 'Add your scene details here...' : '');
+                const titleClass = card.isPlaceholder && !card.title ? 'font-bold mb-2 text-sm text-gray-400' : 'font-bold mb-2 text-sm';
+                const contentClass = card.isPlaceholder && !card.content ? 'flex-1 whitespace-pre-wrap text-xs text-gray-400' : 'flex-1 whitespace-pre-wrap text-xs';
+                
+                return `
+                    <div class="flex flex-col h-full cursor-text" onclick="app.editCard(${card.id})">
+                        <h3 class="${titleClass} card-text" style="font-size: ${dimensions.titleFontSize}px;">${displayTitle}</h3>
+                        <div class="${contentClass} card-text" style="line-height: 1.4; font-size: ${dimensions.contentFontSize}px;">${displayContent}</div>
+                    </div>
+                `;
             }
             
             render() {
@@ -388,7 +480,6 @@
                 this.attachEventListeners();
                 this.updateSyncIndicator();
                 
-                // Restore scroll position after DOM is ready
                 if (!this.showProjectManager) {
                     requestAnimationFrame(() => {
                         this.restoreScrollPosition();
@@ -400,30 +491,30 @@
                 const projectsList = Object.values(this.projects)
                     .sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified))
                     .map(project => `
-                        <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors cursor-pointer group" onclick="app.loadProject('${project.id}')">
+                        <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-standard cursor-pointer group" onclick="app.loadProject('${project.id}')">
                             <div class="flex justify-between items-start">
                                 <div class="flex-1">
                                     <div class="flex items-center gap-2">
                                         ${this.editingProject === project.id ? `
-                                            <input type="text" id="edit-project-${project.id}" value="${project.name}" class="text-lg font-semibold text-gray-800 bg-white border border-gray-400 rounded px-2 py-1 outline-none flex-1" onclick="event.stopPropagation()">
-                                            <button onclick="event.stopPropagation(); app.saveProjectName('${project.id}')" class="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs transition-colors">Save</button>
-                                            <button onclick="event.stopPropagation(); app.editingProject = null; app.render()" class="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs transition-colors">Cancel</button>
+                                            <input type="text" id="edit-project-${project.id}" value="${project.name}" class="text-lg font-semibold text-gray-800 bg-white border border-gray-400 rounded px-2 py-1 outline-none flex-1 card-text" onclick="event.stopPropagation()">
+                                            <button onclick="event.stopPropagation(); app.saveProjectName('${project.id}')" class="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs transition-standard">Save</button>
+                                            <button onclick="event.stopPropagation(); app.editingProject = null; app.render()" class="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs transition-standard">Cancel</button>
                                         ` : `
-                                            <h3 class="text-lg font-semibold text-gray-800">${project.name}</h3>
-                                            <button onclick="event.stopPropagation(); app.editingProject = '${project.id}'; app.render()" class="bg-gray-200 hover:bg-gray-300 text-gray-600 px-2 py-1 rounded text-xs transition-colors flex items-center gap-1">
+                                            <h3 class="text-lg font-semibold text-gray-800 card-text">${project.name}</h3>
+                                            <button onclick="event.stopPropagation(); app.editingProject = '${project.id}'; app.render()" class="bg-gray-200 hover:bg-gray-300 text-gray-600 px-2 py-1 rounded text-xs transition-standard flex items-center gap-1">
                                                 <i class="fa-solid fa-pen-to-square edit-icon"></i>
                                             </button>
                                         `}
                                     </div>
-                                    <p class="text-sm text-gray-600 mt-1">
+                                    <p class="text-sm text-gray-600 mt-1 card-text">
                                         ${project.cards?.length || 0} cards • Last modified: ${new Date(project.lastModified).toLocaleDateString()}
                                     </p>
                                 </div>
                                 <div class="flex gap-2 ml-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onclick="event.stopPropagation(); app.exportProject('${project.id}')" class="bg-sky-500 hover:bg-sky-600 text-white px-3 py-1 rounded text-sm transition-colors">
+                                    <button onclick="event.stopPropagation(); app.exportProject('${project.id}')" class="bg-sky-500 hover:bg-sky-600 text-white px-3 py-1 rounded text-sm transition-standard">
                                         Export
                                     </button>
-                                    <button onclick="event.stopPropagation(); app.deleteProject('${project.id}')" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition-colors">
+                                    <button onclick="event.stopPropagation(); app.deleteProject('${project.id}')" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition-standard">
                                         Delete
                                     </button>
                                 </div>
@@ -437,7 +528,7 @@
                     <div class="min-h-screen bg-amber-50 p-6">
                         <div class="max-w-4xl mx-auto">
                             <div class="text-center mb-8">
-                                <h1 class="text-4xl font-bold text-amber-900 mb-2">Story Cards</h1>
+                                <h1 class="text-4xl font-bold text-amber-900 mb-2 card-text">Story Cards</h1>
                                 <div class="mt-2">
                                     <span id="sync-indicator" class="text-xs text-green-500">Ready</span>
                                 </div>
@@ -445,15 +536,15 @@
                             
                             ${hasProjects ? `
                                 <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
-                                    <h2 class="text-xl font-bold text-gray-800 mb-4">Your Projects</h2>
+                                    <h2 class="text-xl font-bold text-gray-800 mb-4 card-text">Your Projects</h2>
                                     <div class="grid gap-4">
                                         ${projectsList}
                                     </div>
                                     <div class="flex justify-between items-center mt-4">
-                                        <button onclick="app.showCreateProject = true; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white w-12 h-12 rounded-full flex items-center justify-center transition-colors shadow-lg hover:shadow-xl">
+                                        <button onclick="app.showCreateProject = true; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white w-12 h-12 rounded-full flex items-center justify-center transition-standard shadow-lg hover:shadow-xl">
                                             <span class="text-2xl">+</span>
                                         </button>
-                                        <button onclick="app.showImportProject = true; app.render()" class="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                                        <button onclick="app.showImportProject = true; app.render()" class="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-standard">
                                             Import Project
                                         </button>
                                     </div>
@@ -462,8 +553,8 @@
                                 <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
                                     <div class="text-center py-12 text-gray-500">
                                         <div class="text-5xl mb-4">📁</div>
-                                        <p class="mb-4">No projects yet. Create your first project!</p>
-                                        <button onclick="app.showCreateProject = true; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white w-12 h-12 rounded-full flex items-center justify-center transition-colors shadow-lg hover:shadow-xl mx-auto">
+                                        <p class="mb-4 card-text">No projects yet. Create your first project!</p>
+                                        <button onclick="app.showCreateProject = true; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white w-12 h-12 rounded-full flex items-center justify-center transition-standard shadow-lg hover:shadow-xl mx-auto">
                                             <span class="text-2xl">+</span>
                                         </button>
                                     </div>
@@ -473,14 +564,14 @@
                             ${this.showImportProject ? `
                                 <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                                     <div class="bg-white rounded-lg shadow-xl p-6 w-96 max-w-90vw">
-                                        <h2 class="text-xl font-bold text-gray-800 mb-4">Import Project</h2>
-                                        <p class="text-sm text-gray-600 mb-4">Select a JSON file exported from Story Cards to import:</p>
+                                        <h2 class="text-xl font-bold text-gray-800 mb-4 card-text">Import Project</h2>
+                                        <p class="text-sm text-gray-600 mb-4 card-text">Select a JSON file exported from Story Cards to import:</p>
                                         <input type="file" id="import-file-input" accept=".json" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-4">
                                         <div class="flex gap-3 justify-end">
-                                            <button onclick="app.showImportProject = false; app.render()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors">
+                                            <button onclick="app.showImportProject = false; app.render()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-standard">
                                                 Cancel
                                             </button>
-                                            <button onclick="app.importProjectFromFile()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                                            <button onclick="app.importProjectFromFile()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-standard">
                                                 Import
                                             </button>
                                         </div>
@@ -491,13 +582,13 @@
                             ${this.showCreateProject ? `
                                 <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                                     <div class="bg-white rounded-lg shadow-xl p-6 w-96 max-w-90vw">
-                                        <h2 class="text-xl font-bold text-gray-800 mb-4">Create New Project</h2>
-                                        <input type="text" id="project-name-input" placeholder="Enter project name..." class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 mb-4">
+                                        <h2 class="text-xl font-bold text-gray-800 mb-4 card-text">Create New Project</h2>
+                                        <input type="text" id="project-name-input" placeholder="Enter project name..." class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 mb-4 card-text">
                                         <div class="flex gap-3 justify-end">
-                                            <button onclick="app.showCreateProject = false; app.render()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors">
+                                            <button onclick="app.showCreateProject = false; app.render()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-standard">
                                                 Cancel
                                             </button>
-                                            <button onclick="app.createProjectFromInput()" class="bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                                            <button onclick="app.createProjectFromInput()" class="bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 rounded-lg font-medium transition-standard">
                                                 Create
                                             </button>
                                         </div>
@@ -514,13 +605,12 @@
                 const dimensions = this.getCardDimensions();
                 
                 const cardsList = this.cards.map((card, index) => {
-                    const displayTitle = card.title || (card.isPlaceholder ? 'New Scene' : '');
-                    const displayContent = card.content || (card.isPlaceholder ? 'Add your scene details here...' : '');
-                    const displayTitleClass = card.isPlaceholder && !card.title ? 'font-bold mb-2 text-sm text-gray-400' : 'font-bold mb-2 text-sm';
-                    const displayContentClass = card.isPlaceholder && !card.content ? 'flex-1 whitespace-pre-wrap text-xs text-gray-400' : 'flex-1 whitespace-pre-wrap text-xs';
+                    const cardContent = this.editingCard === card.id 
+                        ? this.renderCardEditMode(card, dimensions)
+                        : this.renderCardViewMode(card, dimensions);
                 
                     return `
-                        <div class="bg-white shadow-lg cursor-move transition-all duration-200 hover:shadow-xl card-background" 
+                        <div class="bg-white shadow-lg cursor-move transition-standard hover:shadow-xl card-background" 
                              style="width: ${dimensions.width}px; height: ${dimensions.height}px;" 
                              draggable="true" 
                              ondragstart="app.handleDragStart(event, ${card.id}, ${index})"
@@ -538,35 +628,7 @@
                                  style="cursor: grab;">⋮⋮</div>
                             
                             <div class="h-full flex flex-col" style="padding: ${dimensions.padding}px;">
-                                ${this.editingCard === card.id ? `
-                                    <input type="text" 
-                                           id="title-input-${card.id}"
-                                           value="${card.title}" 
-                                           placeholder="New Scene"
-                                           onchange="app.updateCard(${card.id}, 'title', this.value)" 
-                                           oninput="app.handleRealTimeInput(${card.id}, 'title', this.value, this)"
-                                           onfocus="if(this.value === '' && app.cards.find(c => c.id === ${card.id}).isPlaceholder) this.value = ''"
-                                           class="font-bold mb-2 bg-transparent border-none outline-none ${card.isPlaceholder && !card.title ? 'text-gray-400' : 'text-black'}" 
-                                           style="font-family: system-ui; font-size: ${dimensions.titleFontSize}px;">
-                                    <textarea id="content-input-${card.id}"
-                                              placeholder="Add your scene details here..." 
-                                              onchange="app.updateCard(${card.id}, 'content', this.value)" 
-                                              oninput="app.handleRealTimeInput(${card.id}, 'content', this.value, this)"
-                                              onfocus="if(this.value === '' && app.cards.find(c => c.id === ${card.id}).isPlaceholder) this.value = ''"
-                                              class="flex-1 bg-transparent border-none outline-none resize-none leading-relaxed ${card.isPlaceholder && !card.content ? 'text-gray-400' : 'text-black'}" 
-                                              style="font-family: system-ui; font-size: ${dimensions.contentFontSize}px;">${card.content}</textarea>
-                                    <div class="absolute bottom-2 right-2">
-                                        <button onclick="if(confirm('Delete this card?')) app.deleteCard(${card.id})" 
-                                                class="text-gray-400 hover:text-red-500 transition-colors"
-                                                style="font-size: ${dimensions.contentFontSize}px;"
-                                                title="Delete card"><i class="fa-sharp fa-solid fa-trash"></i></button>
-                                    </div>
-                                ` : `
-                                    <div class="flex flex-col h-full cursor-text" onclick="app.editCard(${card.id})">
-                                        <h3 class="${displayTitleClass}" style="font-family: system-ui; font-size: ${dimensions.titleFontSize}px;">${displayTitle}</h3>
-                                        <div class="${displayContentClass}" style="font-family: system-ui; line-height: 1.4; font-size: ${dimensions.contentFontSize}px;">${displayContent}</div>
-                                    </div>
-                                `}
+                                ${cardContent}
                             </div>
                         </div>
                     `;
@@ -577,18 +639,18 @@
                         <div class="p-6">
                             <div class="mb-6 text-center">
                                 <div class="flex items-center gap-4 mb-4">
-                                    <button onclick="app.showProjectManager = true; window.location.hash = ''; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors fixed left-4 top-6 z-10">
+                                    <button onclick="app.showProjectManager = true; window.location.hash = ''; app.render()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-standard fixed left-4 top-6 z-10">
                                         ← Projects
                                     </button>
                                     <div class="text-center flex-1">
-                                        <h1 class="text-3xl font-bold text-amber-900">${currentProjectName}</h1>
-                                        <p class="text-amber-800 text-sm">
+                                        <h1 class="text-3xl font-bold text-amber-900 card-text">${currentProjectName}</h1>
+                                        <p class="text-amber-800 text-sm card-text">
                                             ${this.cards.length} scenes • <span id="sync-indicator" class="text-xs text-green-500">Ready</span>
                                         </p>
                                     </div>
                                 </div>
                                 
-                                <button onclick="app.addCard()" class="bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 rounded-lg transition-colors">
+                                <button onclick="app.addCard()" class="bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 rounded-lg transition-standard">
                                     + Add New Card
                                 </button>
                             </div>
@@ -599,7 +661,7 @@
                             
                             ${this.cards.length === 0 ? `
                                 <div class="text-center py-12 text-amber-800">
-                                    <p class="text-lg">No cards yet. Click "Add New Card" to get started!</p>
+                                    <p class="text-lg card-text">No cards yet. Click "Add New Card" to get started!</p>
                                 </div>
                             ` : ''}
                         </div>
@@ -607,13 +669,13 @@
                         <!-- Zoom Control Pills -->
                         <div class="fixed bottom-4 right-4 bg-white rounded-full shadow-lg border border-gray-200 flex overflow-hidden">
                             <button onclick="app.zoomOut()" 
-                                    class="px-3 py-2 hover:bg-gray-50 transition-colors border-r border-gray-200 text-gray-600 flex items-center justify-center ${this.zoomLevel === this.zoomLevels[0] ? 'opacity-50 cursor-not-allowed' : ''}"
-                                    ${this.zoomLevel === this.zoomLevels[0] ? 'disabled' : ''}
+                                    class="px-3 py-2 hover:bg-gray-50 transition-standard border-r border-gray-200 text-gray-600 flex items-center justify-center ${this.zoomLevel === StoryCardsApp.ZOOM_LEVELS[0] ? 'opacity-50 cursor-not-allowed' : ''}"
+                                    ${this.zoomLevel === StoryCardsApp.ZOOM_LEVELS[0] ? 'disabled' : ''}
                                     title="Zoom Out">−</button>
                             <div class="px-3 py-2 text-xs text-gray-600 bg-gray-50 border-r border-gray-200 min-w-[50px] flex items-center justify-center">${this.zoomLevel}%</div>
                             <button onclick="app.zoomIn()" 
-                                    class="px-3 py-2 hover:bg-gray-50 transition-colors text-gray-600 flex items-center justify-center ${this.zoomLevel === this.zoomLevels[this.zoomLevels.length - 1] ? 'opacity-50 cursor-not-allowed' : ''}"
-                                    ${this.zoomLevel === this.zoomLevels[this.zoomLevels.length - 1] ? 'disabled' : ''}
+                                    class="px-3 py-2 hover:bg-gray-50 transition-standard text-gray-600 flex items-center justify-center ${this.zoomLevel === StoryCardsApp.ZOOM_LEVELS[StoryCardsApp.ZOOM_LEVELS.length - 1] ? 'opacity-50 cursor-not-allowed' : ''}"
+                                    ${this.zoomLevel === StoryCardsApp.ZOOM_LEVELS[StoryCardsApp.ZOOM_LEVELS.length - 1] ? 'disabled' : ''}
                                     title="Zoom In">+</button>
                         </div>
                     </div>
@@ -635,7 +697,6 @@
                 if (importInput) {
                     importInput.addEventListener('change', (e) => {
                         if (e.target.files.length > 0) {
-                            // Auto-import when file is selected
                             this.importProjectFromFile();
                         }
                     });
@@ -663,13 +724,11 @@
                     try {
                         const projectData = JSON.parse(e.target.result);
                         
-                        // Validate that this looks like a Story Cards project
                         if (!projectData.name || !projectData.cards || !Array.isArray(projectData.cards)) {
                             alert('Invalid project file. Please select a valid Story Cards export.');
                             return;
                         }
                         
-                        // Generate new ID and update timestamps
                         const newId = Date.now().toString();
                         const importedProject = {
                             ...projectData,
@@ -679,11 +738,9 @@
                             imported: new Date().toISOString()
                         };
                         
-                        // Add to projects
                         this.projects[newId] = importedProject;
-                        this.showImportProject = false;
-                        this.saveData();
-                        this.render();
+                        this.updateState({ showImportProject: false });
+                        this.debouncedSave();
                         
                         alert(`Successfully imported "${projectData.name}" with ${projectData.cards.length} cards!`);
                         
@@ -700,12 +757,13 @@
                 if (confirm('Are you sure you want to delete this project? This cannot be undone.')) {
                     delete this.projects[id];
                     if (this.currentProject === id) {
-                        this.currentProject = null;
-                        this.cards = [];
-                        this.showProjectManager = true;
+                        this.updateState({
+                            currentProject: null,
+                            cards: [],
+                            showProjectManager: true
+                        });
                     }
-                    this.saveData();
-                    this.render();
+                    this.debouncedSave();
                 }
             }
 
@@ -717,13 +775,12 @@
                         name: input.value.trim(),
                         lastModified: new Date().toISOString()
                     };
-                    this.editingProject = null;
-                    this.saveData();
-                    this.render();
+                    this.updateState({ editingProject: null });
+                    this.debouncedSave();
                 }
             }
 
-            // Original mouse drag handlers
+            // Drag and drop handlers
             handleDragStart(event, cardId, index) {
                 this.draggedCard = { cardId, index };
                 event.dataTransfer.effectAllowed = 'move';
@@ -738,7 +795,7 @@
                 cards.forEach(card => card.style.transform = '');
                 
                 if (this.draggedCard && this.draggedCard.index !== index) {
-                    const targetCard = document.getElementById(`card-${this.cards[index].id}`);
+                    const targetCard = this.getCardElement(this.cards[index].id);
                     if (targetCard) {
                         targetCard.style.transform = 'scale(1.05)';
                         targetCard.style.boxShadow = '0 0 20px rgba(59, 130, 246, 0.5)';
@@ -777,7 +834,7 @@
                 this.draggedCard = null;
             }
 
-            // Touch drag handlers for mobile
+            // Touch drag handlers
             handleTouchStart(event, cardId, index) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -790,7 +847,7 @@
                 
                 this.longPressTimer = setTimeout(() => {
                     this.startTouchDrag(cardId, index);
-                }, 500);
+                }, StoryCardsApp.LONG_PRESS_DURATION);
             }
             
             handleTouchMove(event, index) {
@@ -860,13 +917,13 @@
                 this.touchDragActive = true;
                 this.draggedCard = { cardId, index };
                 
-                const card = document.getElementById(`card-${cardId}`);
+                const card = this.getCardElement(cardId);
                 if (card) {
                     card.classList.add('dragging-touch');
                 }
                 
                 if (navigator.vibrate) {
-                    navigator.vibrate(50);
+                    navigator.vibrate(StoryCardsApp.VIBRATION_DURATION);
                 }
             }
             
@@ -887,7 +944,7 @@
                 cards.forEach(card => card.classList.remove('drop-target-touch'));
                 
                 if (this.cards[index]) {
-                    const targetCard = document.getElementById(`card-${this.cards[index].id}`);
+                    const targetCard = this.getCardElement(this.cards[index].id);
                     if (targetCard) {
                         targetCard.classList.add('drop-target-touch');
                     }
@@ -905,12 +962,6 @@
                     link.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}.json`;
                     link.click();
                     URL.revokeObjectURL(url);
-                }
-            }
-            
-            exportCurrentProject() {
-                if (this.currentProject) {
-                    this.exportProject(this.currentProject);
                 }
             }
         }
